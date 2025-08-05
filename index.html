@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nauka Angielskiego - Słownictwo</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1>📚 Nauka Angielskiego</h1>
+            </div>
+            <div class="nav-menu">
+                <button class="nav-btn" data-view="dashboard">Panel główny</button>
+                <button class="nav-btn" data-view="study">Nauka</button>
+                <button class="nav-btn" data-view="progress">Postępy</button>
+                <button class="nav-btn" data-view="settings">Ustawienia</button>
+            </div>
+        </nav>
+
+        <!-- Dashboard View -->
+        <div id="dashboard-view" class="view active">
+            <div class="container">
+                <h2>Witaj w aplikacji do nauki angielskiego!</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="total-words">0</div>
+                        <div class="stat-label">Słów w sumie</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="learned-words">0</div>
+                        <div class="stat-label">Słów nauczonych</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="due-words">0</div>
+                        <div class="stat-label">Do powtórki</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="success-rate">0%</div>
+                        <div class="stat-label">Skuteczność</div>
+                    </div>
+                    <div class="stat-card ai-info">
+                        <div class="stat-number" id="current-level">B1</div>
+                        <div class="stat-label">🤖 Poziom AI</div>
+                    </div>
+                    <div class="stat-card ai-info">
+                        <div class="stat-number" id="infinite-status">🚀</div>
+                        <div class="stat-label">Nieskończona nauka</div>
+                    </div>
+                </div>
+                
+                <div class="study-modes">
+                    <h3>Wybierz tryb nauki:</h3>
+                    <div class="mode-grid">
+                        <button class="mode-card" data-mode="flashcards">
+                            <div class="mode-icon">🃏</div>
+                            <h4>Fiszki</h4>
+                            <p>Przewracaj karty i ucz się słówek</p>
+                        </button>
+                        <button class="mode-card" data-mode="match">
+                            <div class="mode-icon">🔗</div>
+                            <h4>Dopasowywanie</h4>
+                            <p>Połącz polskie słowa z angielskimi</p>
+                        </button>
+                        <button class="mode-card" data-mode="typing">
+                            <div class="mode-icon">⌨️</div>
+                            <h4>Pisanie</h4>
+                            <p>Wpisz tłumaczenie słowa</p>
+                        </button>
+                        <button class="mode-card" data-mode="listening">
+                            <div class="mode-icon">🎧</div>
+                            <h4>Słuchanie</h4>
+                            <p>Słuchaj i tłumacz słowa</p>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Study View -->
+        <div id="study-view" class="view">
+            <div class="container">
+                <div class="study-header">
+                    <button id="back-btn" class="btn-secondary">← Powrót</button>
+                    <div class="study-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="study-progress"></div>
+                        </div>
+                        <span id="progress-text">0/0</span>
+                    </div>
+                </div>
+                
+                <!-- Flashcards Mode -->
+                <div id="flashcards-mode" class="study-mode">
+                    <div class="flashcard" id="flashcard">
+                        <div class="card-front">
+                            <div class="word-image" id="word-image"></div>
+                            <div class="word-text" id="front-word"></div>
+                            <button class="flip-btn">Przewróć kartę</button>
+                        </div>
+                        <div class="card-back">
+                            <div class="word-text" id="back-word"></div>
+                            <div class="answer-buttons">
+                                <button class="btn-wrong">Nie znam</button>
+                                <button class="btn-correct">Znam</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Typing Mode -->
+                <div id="typing-mode" class="study-mode">
+                    <div class="typing-card">
+                        <div class="word-image" id="typing-image"></div>
+                        <div class="question">
+                            <h3>Jak powiedzieć po angielsku:</h3>
+                            <div class="polish-word" id="polish-word"></div>
+                        </div>
+                        <input type="text" id="answer-input" placeholder="Wpisz odpowiedź...">
+                        <button id="check-answer" class="btn-primary">Sprawdź</button>
+                        <div id="feedback" class="feedback"></div>
+                    </div>
+                </div>
+
+                <!-- Match Mode -->
+                <div id="match-mode" class="study-mode">
+                    <div class="match-container">
+                        <h3>Połącz polskie słowa z angielskimi:</h3>
+                        <div class="match-grid">
+                            <div class="match-column">
+                                <h4>Polski</h4>
+                                <div id="polish-words" class="word-list"></div>
+                            </div>
+                            <div class="match-column">
+                                <h4>Angielski</h4>
+                                <div id="english-words" class="word-list"></div>
+                            </div>
+                        </div>
+                        <button id="check-matches" class="btn-primary">Sprawdź dopasowania</button>
+                    </div>
+                </div>
+
+                <!-- Listening Mode -->
+                <div id="listening-mode" class="study-mode">
+                    <div class="listening-card">
+                        <div class="word-image" id="listening-image"></div>
+                        <div class="audio-section">
+                            <button id="play-audio" class="audio-btn">🔊 Odtwórz</button>
+                            <audio id="word-audio" preload="none"></audio>
+                        </div>
+                        <div class="question">
+                            <h3>Co oznacza to słowo po polsku?</h3>
+                        </div>
+                        <input type="text" id="listening-input" placeholder="Wpisz tłumaczenie...">
+                        <button id="check-listening" class="btn-primary">Sprawdź</button>
+                        <div id="listening-feedback" class="feedback"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress View -->
+        <div id="progress-view" class="view">
+            <div class="container">
+                <h2>Twoje postępy</h2>
+                <div class="progress-details">
+                    <div class="progress-chart">
+                        <canvas id="progress-canvas" width="400" height="200"></canvas>
+                    </div>
+                    <div class="word-status">
+                        <h3>Status słów:</h3>
+                        <div class="status-list" id="word-status-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings View -->
+        <div id="settings-view" class="view">
+            <div class="container">
+                <h2>Ustawienia</h2>
+                <div class="settings-grid">
+                    <div class="setting-group">
+                        <h3>Interwały powtórek</h3>
+                        <label>
+                            Pierwszy przegląd:
+                            <select id="first-interval">
+                                <option value="1">1 dzień</option>
+                                <option value="2">2 dni</option>
+                                <option value="3">3 dni</option>
+                            </select>
+                        </label>
+                        <label>
+                            Drugi przegląd:
+                            <select id="second-interval">
+                                <option value="3">3 dni</option>
+                                <option value="7" selected>7 dni</option>
+                                <option value="14">14 dni</option>
+                            </select>
+                        </label>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <h3>Cel dzienny</h3>
+                        <label>
+                            Nowych słów dziennie:
+                            <input type="number" id="daily-goal" min="1" max="50" value="10">
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>Poziom językowy i AI</h3>
+                        <label>
+                            Poziom językowy:
+                            <select id="language-level">
+                                <option value="A1">A1 - Początkujący</option>
+                                <option value="A2">A2 - Podstawowy</option>
+                                <option value="B1" selected>B1 - Średniozaawansowany</option>
+                                <option value="B2">B2 - Średniozaawansowany wyższy</option>
+                                <option value="C1">C1 - Zaawansowany</option>
+                                <option value="C2">C2 - Biegły</option>
+                            </select>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="infinite-learning" checked>
+                            <span>🚀 Nieskończona nauka (automatyczne dodawanie słów)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="auto-add-words" checked>
+                            <span>🤖 Automatyczne generowanie nowych słów przez AI</span>
+                        </label>
+                        <button id="generate-words" class="btn-primary">
+                            🎯 Wygeneruj nowe słowa teraz
+                        </button>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <h3>Konfiguracja AI</h3>
+                        <label>
+                            Dostawca AI:
+                            <select id="ai-provider">
+                                <option value="openai">OpenAI (GPT)</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="gemini">Google (Gemini)</option>
+                            </select>
+                        </label>
+                        
+                        <label>
+                            Klucz API:
+                            <input type="password" id="ai-api-key" placeholder="Wprowadź swój klucz API">
+                            <small style="display: block; color: #666; margin-top: 5px;">Klucz jest przechowywany lokalnie w przeglądarce</small>
+                        </label>
+                        
+                        <label>
+                            Model AI:
+                            <select id="ai-model">
+                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                <option value="gpt-4">GPT-4</option>
+                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                            </select>
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enable-ai-recommendations" checked>
+                            <span>🧠 Inteligentne rekomendacje interwałów powtórek</span>
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="adaptive-difficulty" checked>
+                            <span>📈 Adaptacyjna trudność słów</span>
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enable-imagen" checked>
+                            <span>🖼️ Generuj obrazki z Imagen AI</span>
+                        </label>
+                        
+                        <button id="test-ai-connection" class="btn-secondary">🔍 Testuj połączenie AI</button>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <h3>Import/Export słów</h3>
+                        <input type="file" id="import-file" accept=".csv" style="display: none;">
+                        <button id="import-btn" class="btn-secondary">Importuj słowa (CSV)</button>
+                        <button id="export-btn" class="btn-secondary">Eksportuj słowa</button>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <h3>Resetowanie danych</h3>
+                        <button id="reset-progress" class="btn-danger">Resetuj postępy</button>
+                        <button id="reset-all" class="btn-danger">Resetuj wszystko</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
