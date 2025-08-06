@@ -463,16 +463,10 @@ class VocabularyApp {
         // Generate speech synthesis for the English word
         audio.src = this.generateAudioURL(word.english);
         
-        // Automatycznie odtwórz słowo tylko dla pierwszego słowa w sesji
-        if (this.currentWordIndex === 0) {
-            setTimeout(() => {
-                this.speakWord(word.english);
-            }, 500);
-        } else {
-            // Dla kolejnych słów pokaż wskazówkę
-            feedback.textContent = '🔊 Kliknij przycisk lub naciśnij spację, aby usłyszeć słowo';
-            feedback.className = 'feedback';
-        }
+        // Automatycznie odtwórz każde nowe słowo raz
+        setTimeout(() => {
+            this.speakWord(word.english);
+        }, 500);
         
         listeningInput.focus();
     }
@@ -507,21 +501,28 @@ class VocabularyApp {
         if (isCorrect) {
             feedback.textContent = 'Świetnie! Poprawna odpowiedź.';
             feedback.className = 'feedback correct';
+            
+            this.recordAnswer(isCorrect);
+            
+            setTimeout(() => {
+                this.nextWord();
+            }, 2000);
         } else {
             feedback.textContent = `Niepoprawnie. Prawidłowa odpowiedź to: ${word.polish}`;
             feedback.className = 'feedback incorrect';
             
+            this.recordAnswer(isCorrect);
+            
             // Odtwórz słowo ponownie po błędnej odpowiedzi
             setTimeout(() => {
                 this.speakWord(word.english);
+                
+                // Po odtworzeniu słowa przejdź do następnego
+                setTimeout(() => {
+                    this.nextWord();
+                }, 2000);
             }, 1000);
         }
-
-        this.recordAnswer(isCorrect);
-        
-        setTimeout(() => {
-            this.nextWord();
-        }, 2000);
     }
 
     // Match Mode
@@ -899,7 +900,7 @@ class VocabularyApp {
         this.updateLearningPatterns(currentWord, isCorrect);
         this.saveData();
 
-        if (this.currentMode !== 'match') {
+        if (this.currentMode !== 'match' && this.currentMode !== 'listening') {
             setTimeout(() => {
                 this.nextWord();
             }, 2000);
