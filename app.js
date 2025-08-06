@@ -26,7 +26,9 @@ class VocabularyApp {
             aiModel: 'gpt-3.5-turbo',
             enableAIRecommendations: true,
             adaptiveDifficulty: true,
-            enableImagen: true
+            enableImagen: true,
+            autoFlipEnabled: false,
+            autoFlipDelay: 3
         };
         
         // AI word generation
@@ -154,6 +156,12 @@ class VocabularyApp {
             this.recordAnswer(true);
         });
 
+        // Gesture controls dla fiszek
+        this.setupFlashcardGestures();
+        
+        // Keyboard controls dla fiszek
+        this.setupFlashcardKeyboard();
+
         // Typing mode
         document.getElementById('check-answer').addEventListener('click', () => {
             this.checkTypingAnswer();
@@ -162,6 +170,8 @@ class VocabularyApp {
         document.getElementById('answer-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 this.checkTypingAnswer();
+            } else {
+                this.playTypingSound();
             }
         });
 
@@ -242,6 +252,23 @@ class VocabularyApp {
         document.getElementById('auto-add-words').addEventListener('change', (e) => {
             this.settings.autoAddWords = e.target.checked;
             this.saveData();
+        });
+
+        // Auto-flip settings
+        document.getElementById('auto-flip-enabled').addEventListener('change', (e) => {
+            this.settings.autoFlipEnabled = e.target.checked;
+            this.saveData();
+            if (this.currentMode === 'flashcards') {
+                this.setupAutoFlip(); // Restart auto-flip z nowymi ustawieniami
+            }
+        });
+
+        document.getElementById('auto-flip-delay').addEventListener('change', (e) => {
+            this.settings.autoFlipDelay = parseInt(e.target.value);
+            this.saveData();
+            if (this.currentMode === 'flashcards') {
+                this.setupAutoFlip(); // Restart auto-flip z nowymi ustawieniami
+            }
         });
 
         document.getElementById('generate-words').addEventListener('click', () => {
@@ -401,11 +428,67 @@ class VocabularyApp {
         frontWord.textContent = word.polish;
         backWord.textContent = word.english;
         
+        // Dodaj kolorową ramkę na podstawie trudności słowa
+        this.setDifficultyBorder(flashcard, word);
+        
         this.loadWordImage(wordImage, word.english);
+        
+        // Auto-flip jeśli włączony
+        this.setupAutoFlip();
+    }
+
+    setDifficultyBorder(flashcard, word) {
+        // Usuń poprzednie klasy trudności
+        flashcard.classList.remove('difficulty-easy', 'difficulty-medium', 'difficulty-hard');
+        
+        // Oblicz trudność na podstawie statystyk słowa
+        const accuracy = word.attempts > 0 ? (word.correct / word.attempts) : 1;
+        let difficultyClass = 'difficulty-easy';
+        
+        if (word.attempts === 0) {
+            difficultyClass = 'difficulty-medium'; // Nowe słowa - żółte
+        } else if (accuracy >= 0.8) {
+            difficultyClass = 'difficulty-easy'; // Łatwe - zielone
+        } else if (accuracy >= 0.5) {
+            difficultyClass = 'difficulty-medium'; // Średnie - żółte
+        } else {
+            difficultyClass = 'difficulty-hard'; // Trudne - czerwone
+        }
+        
+        flashcard.classList.add(difficultyClass);
     }
 
     flipCard() {
         document.getElementById('flashcard').classList.toggle('flipped');
+    }
+
+    setupAutoFlip() {
+        // Wyczyść poprzedni timer
+        if (this.autoFlipTimer) {
+            clearTimeout(this.autoFlipTimer);
+        }
+
+        if (this.settings.autoFlipEnabled && this.currentMode === 'flashcards') {
+            const flashcard = document.getElementById('flashcard');
+            
+            // Jeśli karta nie jest przewrócona, ustaw timer
+            if (!flashcard.classList.contains('flipped')) {
+                this.autoFlipTimer = setTimeout(() => {
+                    this.flipCard();
+                    this.showAutoFlipIndicator();
+                }, this.settings.autoFlipDelay * 1000);
+            }
+        }
+    }
+
+    showAutoFlipIndicator() {
+        // Pokaż subtelną animację że karta została automatycznie przewrócona
+        const flashcard = document.getElementById('flashcard');
+        flashcard.style.boxShadow = '0 0 20px rgba(102, 126, 234, 0.5)';
+        
+        setTimeout(() => {
+            flashcard.style.boxShadow = '';
+        }, 1000);
     }
 
     // Typing Mode
@@ -463,25 +546,387 @@ class VocabularyApp {
         // Generate speech synthesis for the English word
         audio.src = this.generateAudioURL(word.english);
         
-        // Automatycznie odtwórz każde nowe słowo raz
-        setTimeout(() => {
-            this.speakWord(word.english);
-        }, 500);
+        // Show mobile-specific instruction
+        const audioBtn = document.getElementById('play-audio');
+        if (this.isMobileDevice()) {
+            audioBtn.textContent = '🔊 Dotknij aby usłyszeć';
+            audioBtn.style.backgroundColor = '#4CAF50';
+            audioBtn.style.animation = 'pulse 2s infinite';
+        } else {
+            audioBtn.textContent = '🔊 Odtwórz';
+            audioBtn.style.backgroundColor = '';
+            audioBtn.style.animation = '';
+            // Automatycznie odtwórz każde nowe słowo raz (tylko na desktop)
+            setTimeout(() => {
+                this.speakWord(word.english);
+            }, 500);
+        }
         
         listeningInput.focus();
     }
 
     playAudio() {
         const word = this.currentStudySet[this.currentWordIndex];
+        const audioBtn = document.getElementById('play-audio');
+        
+        // Visual feedback for mobile users
+        if (this.isMobileDevice()) {
+            audioBtn.textContent = '🔊 Odtwarzanie...';
+            audioBtn.disabled = true;
+            
+            setTimeout(() => {
+                audioBtn.textContent = '🔊 Odtwórz';
+                audioBtn.disabled = false;
+            }, 2000);
+        }
+        
         this.speakWord(word.english);
     }
 
     speakWord(text) {
         if ('speechSynthesis' in window) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'en-US';
-            utterance.rate = 0.8;
-            speechSynthesis.speak(utterance);
+            // Stop any currently playing speech
+            speechSynthesis.cancel();
+            
+            // Wait a bit for mobile browsers
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.8;
+                utterance.volume = 1.0;
+                
+                // Mobile-specific settings
+                if (this.isMobileDevice()) {
+                    utterance.rate = 0.7; // Slower rate for mobile
+                    utterance.pitch = 1.0;
+                }
+                
+                // Error handling for mobile
+                utterance.onerror = (event) => {
+                    console.warn('Speech synthesis error:', event.error);
+                    // Fallback: try again after a short delay
+                    if (event.error === 'network' || event.error === 'synthesis-failed') {
+                        setTimeout(() => {
+                            speechSynthesis.speak(utterance);
+                        }, 500);
+                    }
+                };
+                
+                utterance.onend = () => {
+                    console.log('Speech finished');
+                };
+                
+                // Ensure voices are loaded (important for mobile)
+                if (speechSynthesis.getVoices().length === 0) {
+                    speechSynthesis.addEventListener('voiceschanged', () => {
+                        speechSynthesis.speak(utterance);
+                    }, { once: true });
+                } else {
+                    speechSynthesis.speak(utterance);
+                }
+            }, 100);
+        }
+    }
+
+    isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+
+    // Dźwięki dla trybu match
+    playSuccessSound() {
+        this.playTone(523.25, 0.2, 'sine'); // C5 - przyjemny dźwięk sukcesu
+        setTimeout(() => this.playTone(659.25, 0.2, 'sine'), 100); // E5
+    }
+
+    playErrorSound() {
+        this.playTone(220, 0.3, 'sawtooth'); // A3 - niższy dźwięk błędu
+    }
+
+    playCompletionSound() {
+        // Melodia sukcesu: C-E-G-C (akord C-dur)
+        this.playTone(523.25, 0.15, 'sine'); // C5
+        setTimeout(() => this.playTone(659.25, 0.15, 'sine'), 150); // E5
+        setTimeout(() => this.playTone(783.99, 0.15, 'sine'), 300); // G5
+        setTimeout(() => this.playTone(1046.50, 0.4, 'sine'), 450); // C6
+    }
+
+    playTypingSound() {
+        // Realistyczny dźwięk mechanicznej klawiatury
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Symulacja "thock" mechanicznej klawiatury
+        const clickFreq = 150 + Math.random() * 100; // 150-250Hz - niższe, bardziej realistyczne
+        const releaseFreq = clickFreq * 0.7; // Dźwięk puszczenia klawisza
+        
+        // Pierwszy dźwięk - naciśnięcie
+        this.playTone(clickFreq, 0.02, 'triangle', 0.02);
+        
+        // Drugi dźwięk - puszczenie (po krótkim opóźnieniu)
+        setTimeout(() => {
+            this.playTone(releaseFreq, 0.015, 'triangle', 0.015);
+        }, 10);
+        
+        // Dodaj subtelny szum dla realizmu
+        setTimeout(() => {
+            this.playTone(clickFreq * 3, 0.005, 'sawtooth', 0.005);
+        }, 5);
+    }
+
+    // Gesture controls dla fiszek
+    setupFlashcardGestures() {
+        const flashcard = document.getElementById('flashcard');
+        let startX = 0;
+        let startY = 0;
+        let currentX = 0;
+        let currentY = 0;
+        let isDragging = false;
+
+        // Touch events
+        flashcard.addEventListener('touchstart', (e) => {
+            if (this.currentMode !== 'flashcards') return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isDragging = true;
+            flashcard.style.transition = 'none';
+        });
+
+        flashcard.addEventListener('touchmove', (e) => {
+            if (!isDragging || this.currentMode !== 'flashcards') return;
+            e.preventDefault();
+            
+            currentX = e.touches[0].clientX - startX;
+            currentY = e.touches[0].clientY - startY;
+            
+            // Ograniczenie do poziomego ruchu
+            const rotation = currentX * 0.1;
+            const opacity = Math.max(0.7, 1 - Math.abs(currentX) / 300);
+            
+            flashcard.style.transform = `translateX(${currentX}px) rotate(${rotation}deg)`;
+            flashcard.style.opacity = opacity;
+            
+            // Pokaż wskazówki kolorami
+            if (currentX > 50) {
+                flashcard.style.borderColor = '#51cf66'; // Zielony - znam
+            } else if (currentX < -50) {
+                flashcard.style.borderColor = '#ff6b6b'; // Czerwony - nie znam
+            } else {
+                flashcard.style.borderColor = 'transparent';
+            }
+        });
+
+        flashcard.addEventListener('touchend', (e) => {
+            if (!isDragging || this.currentMode !== 'flashcards') return;
+            isDragging = false;
+            
+            flashcard.style.transition = 'all 0.3s ease';
+            flashcard.style.borderColor = 'transparent';
+            
+            // Sprawdź kierunek swipe
+            if (Math.abs(currentX) > 100) {
+                if (currentX > 0) {
+                    // Swipe right - znam
+                    this.handleSwipeRight();
+                } else {
+                    // Swipe left - nie znam
+                    this.handleSwipeLeft();
+                }
+            } else {
+                // Powrót do pozycji
+                flashcard.style.transform = 'translateX(0) rotate(0deg)';
+                flashcard.style.opacity = '1';
+            }
+            
+            currentX = 0;
+            currentY = 0;
+        });
+
+        // Mouse events dla desktop
+        flashcard.addEventListener('mousedown', (e) => {
+            if (this.currentMode !== 'flashcards') return;
+            startX = e.clientX;
+            startY = e.clientY;
+            isDragging = true;
+            flashcard.style.transition = 'none';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging || this.currentMode !== 'flashcards') return;
+            
+            currentX = e.clientX - startX;
+            currentY = e.clientY - startY;
+            
+            const rotation = currentX * 0.1;
+            const opacity = Math.max(0.7, 1 - Math.abs(currentX) / 300);
+            
+            flashcard.style.transform = `translateX(${currentX}px) rotate(${rotation}deg)`;
+            flashcard.style.opacity = opacity;
+            
+            if (currentX > 50) {
+                flashcard.style.borderColor = '#51cf66';
+            } else if (currentX < -50) {
+                flashcard.style.borderColor = '#ff6b6b';
+            } else {
+                flashcard.style.borderColor = 'transparent';
+            }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (!isDragging || this.currentMode !== 'flashcards') return;
+            isDragging = false;
+            
+            flashcard.style.transition = 'all 0.3s ease';
+            flashcard.style.borderColor = 'transparent';
+            
+            if (Math.abs(currentX) > 100) {
+                if (currentX > 0) {
+                    this.handleSwipeRight();
+                } else {
+                    this.handleSwipeLeft();
+                }
+            } else {
+                flashcard.style.transform = 'translateX(0) rotate(0deg)';
+                flashcard.style.opacity = '1';
+            }
+            
+            currentX = 0;
+            currentY = 0;
+        });
+    }
+
+    handleSwipeRight() {
+        // Swipe right - znam słowo
+        const flashcard = document.getElementById('flashcard');
+        flashcard.style.transform = 'translateX(100vw) rotate(30deg)';
+        flashcard.style.opacity = '0';
+        
+        setTimeout(() => {
+            this.recordAnswer(true);
+            flashcard.style.transform = 'translateX(0) rotate(0deg)';
+            flashcard.style.opacity = '1';
+        }, 300);
+    }
+
+    handleSwipeLeft() {
+        // Swipe left - nie znam słowa
+        const flashcard = document.getElementById('flashcard');
+        flashcard.style.transform = 'translateX(-100vw) rotate(-30deg)';
+        flashcard.style.opacity = '0';
+        
+        setTimeout(() => {
+            this.recordAnswer(false);
+            flashcard.style.transform = 'translateX(0) rotate(0deg)';
+            flashcard.style.opacity = '1';
+        }, 300);
+    }
+
+    // Keyboard controls dla fiszek
+    setupFlashcardKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            // Tylko w trybie fiszek
+            if (this.currentMode !== 'flashcards') return;
+            
+            // Nie reaguj jeśli użytkownik pisze w polu tekstowym
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            const flashcard = document.getElementById('flashcard');
+            
+            switch(e.code) {
+                case 'Space':
+                case 'Enter':
+                    e.preventDefault();
+                    this.flipCard();
+                    this.playKeyboardFlipSound();
+                    break;
+                    
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    if (flashcard.classList.contains('flipped')) {
+                        this.handleKeyboardWrong();
+                    }
+                    break;
+                    
+                case 'ArrowRight':
+                    e.preventDefault();
+                    if (flashcard.classList.contains('flipped')) {
+                        this.handleKeyboardCorrect();
+                    }
+                    break;
+                    
+                case 'KeyA': // Alternative: A = nie znam
+                    e.preventDefault();
+                    if (flashcard.classList.contains('flipped')) {
+                        this.handleKeyboardWrong();
+                    }
+                    break;
+                    
+                case 'KeyD': // Alternative: D = znam
+                    e.preventDefault();
+                    if (flashcard.classList.contains('flipped')) {
+                        this.handleKeyboardCorrect();
+                    }
+                    break;
+            }
+        });
+    }
+
+    playKeyboardFlipSound() {
+        // Subtelny dźwięk przewrócenia karty
+        this.playTone(400, 0.1, 'sine', 0.05);
+        setTimeout(() => this.playTone(600, 0.1, 'sine', 0.05), 50);
+    }
+
+    handleKeyboardCorrect() {
+        // Animacja sukcesu z klawiatury
+        const flashcard = document.getElementById('flashcard');
+        flashcard.style.transform = 'scale(1.05)';
+        flashcard.style.borderColor = '#51cf66';
+        
+        setTimeout(() => {
+            flashcard.style.transform = 'scale(1)';
+            flashcard.style.borderColor = '';
+            this.recordAnswer(true);
+        }, 200);
+    }
+
+    handleKeyboardWrong() {
+        // Animacja błędu z klawiatury
+        const flashcard = document.getElementById('flashcard');
+        flashcard.style.transform = 'scale(0.95)';
+        flashcard.style.borderColor = '#ff6b6b';
+        
+        setTimeout(() => {
+            flashcard.style.transform = 'scale(1)';
+            flashcard.style.borderColor = '';
+            this.recordAnswer(false);
+        }, 200);
+    }
+
+    playTone(frequency, duration, waveType = 'sine', volume = 0.1) {
+        if (!('AudioContext' in window) && !('webkitAudioContext' in window)) {
+            return; // Brak wsparcia dla Web Audio API
+        }
+
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = waveType;
+
+            // Envelope dla płynnego dźwięku
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        } catch (error) {
+            console.warn('Nie można odtworzyć dźwięku:', error);
         }
     }
 
@@ -534,6 +979,7 @@ class VocabularyApp {
         polishContainer.innerHTML = '';
         englishContainer.innerHTML = '';
         this.selectedMatches = {};
+        this.matchedPairs = new Set(); // Śledzenie dopasowanych par
 
         const shuffledEnglish = this.shuffleArray([...wordsToMatch]);
 
@@ -546,6 +992,15 @@ class VocabularyApp {
             const englishEl = this.createMatchElement(word.english, 'english', index);
             englishContainer.appendChild(englishEl);
         });
+
+        // Ukryj przycisk "Sprawdź dopasowanie" - nie jest potrzebny
+        const checkButton = document.getElementById('check-matches');
+        if (checkButton) {
+            checkButton.style.display = 'none';
+        }
+
+        // Dodaj informację o postępie
+        this.updateMatchProgress(wordsToMatch.length, 0);
     }
 
     createMatchElement(text, type, index) {
@@ -596,32 +1051,89 @@ class VocabularyApp {
         const englishEl = document.querySelector(`.match-word[data-word="${englishWord}"]`);
 
         if (correctPair) {
+            // Poprawne dopasowanie - pokaż efekt i usuń słowa
             polishEl.classList.add('correct');
             englishEl.classList.add('correct');
+            this.playSuccessSound();
             this.recordAnswer(true, correctPair);
+            
+            // Dodaj parę do dopasowanych
+            this.matchedPairs.add(polishWord);
+            this.matchedPairs.add(englishWord);
+            
+            // Usuń słowa po animacji
+            setTimeout(() => {
+                polishEl.style.opacity = '0';
+                englishEl.style.opacity = '0';
+                polishEl.style.transform = 'scale(0.8)';
+                englishEl.style.transform = 'scale(0.8)';
+                
+                setTimeout(() => {
+                    polishEl.remove();
+                    englishEl.remove();
+                    
+                    // Sprawdź czy wszystkie słowa zostały dopasowane
+                    this.checkIfAllMatched();
+                }, 300);
+            }, 1000);
+            
         } else {
+            // Błędne dopasowanie - pokaż błąd i przywróć
             polishEl.classList.add('incorrect');
             englishEl.classList.add('incorrect');
+            this.playErrorSound();
+            
             // Find the correct pair and record as incorrect
             const polishWordObj = this.currentStudySet.find(w => w.polish === polishWord);
             if (polishWordObj) {
                 this.recordAnswer(false, polishWordObj);
             }
+            
+            // Przywróć po animacji błędu
+            setTimeout(() => {
+                polishEl.classList.remove('selected', 'correct', 'incorrect');
+                englishEl.classList.remove('selected', 'correct', 'incorrect');
+            }, 1500);
         }
 
         // Reset selections
         this.selectedMatches = {};
+    }
+
+    updateMatchProgress(total, matched) {
+        const progressText = document.querySelector('#match-mode .progress-text');
+        if (progressText) {
+            progressText.textContent = `Dopasowano: ${matched}/${total}`;
+        }
+    }
+
+    checkIfAllMatched() {
+        // Sprawdź czy wszystkie słowa zostały dopasowane
+        const remainingPolish = document.querySelectorAll('#polish-words .match-word').length;
+        const remainingEnglish = document.querySelectorAll('#english-words .match-word').length;
+        const totalWords = this.currentStudySet.slice(this.currentWordIndex, this.currentWordIndex + 5).length;
+        const matchedWords = totalWords - remainingPolish;
         
-        setTimeout(() => {
-            polishEl.classList.remove('selected', 'correct', 'incorrect');
-            englishEl.classList.remove('selected', 'correct', 'incorrect');
-        }, 1500);
+        // Aktualizuj postęp
+        this.updateMatchProgress(totalWords, matchedWords);
+        
+        if (remainingPolish === 0 && remainingEnglish === 0) {
+            // Wszystkie słowa dopasowane - pokaż gratulacje i przejdź dalej
+            setTimeout(() => {
+                this.updateMatchProgress(totalWords, totalWords);
+                this.playCompletionSound();
+                setTimeout(() => {
+                    this.currentWordIndex += 5;
+                    this.loadCurrentWord();
+                }, 1500);
+            }, 500);
+        }
     }
 
     checkMatches() {
-        // Move to next set of words
-        this.currentWordIndex += 5;
-        this.loadCurrentWord();
+        // Ta funkcja nie jest już potrzebna - słowa automatycznie przechodzą dalej
+        // gdy wszystkie zostaną dopasowane
+        this.checkIfAllMatched();
     }
 
     // Word Image Loading
@@ -1650,6 +2162,10 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         document.getElementById('language-level').value = this.settings.languageLevel;
         document.getElementById('infinite-learning').checked = this.settings.infiniteLearning;
         document.getElementById('auto-add-words').checked = this.settings.autoAddWords;
+        
+        // Auto-flip settings
+        document.getElementById('auto-flip-enabled').checked = this.settings.autoFlipEnabled;
+        document.getElementById('auto-flip-delay').value = this.settings.autoFlipDelay;
         
         // AI settings
         document.getElementById('ai-provider').value = this.settings.aiProvider;

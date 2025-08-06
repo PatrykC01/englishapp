@@ -188,14 +188,44 @@ body {
     display: block;
 }
 
+/* Keyboard hints */
+.keyboard-hints {
+    text-align: center;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: #667eea;
+}
+
+.keyboard-hints kbd {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+    font-family: monospace;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    margin: 0 0.1rem;
+}
+
+/* Ukryj wskazówki klawiszowe na urządzeniach mobilnych */
+@media (max-width: 768px) {
+    .keyboard-hints {
+        display: none;
+    }
+}
+
 /* Flashcards */
 .flashcard {
     width: 100%;
     max-width: 500px;
     height: 400px;
     margin: 0 auto;
-    perspective: 1000px;
+    perspective: 1200px;
     cursor: pointer;
+    transform-style: preserve-3d;
 }
 
 .card-front,
@@ -203,16 +233,20 @@ body {
     position: absolute;
     width: 100%;
     height: 100%;
-    background: white;
+    background: linear-gradient(145deg, #ffffff, #f0f0f0);
     border-radius: 16px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    box-shadow: 
+        0 8px 30px rgba(0, 0, 0, 0.15),
+        0 2px 8px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     padding: 2rem;
     backface-visibility: hidden;
-    transition: transform 0.6s;
+    transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transform-style: preserve-3d;
 }
 
 .card-back {
@@ -225,6 +259,25 @@ body {
 
 .flashcard.flipped .card-back {
     transform: rotateY(0deg);
+}
+
+/* Kolorowe ramki trudności dla fiszek */
+.flashcard.difficulty-easy .card-front,
+.flashcard.difficulty-easy .card-back {
+    border: 3px solid #51cf66;
+    box-shadow: 0 8px 30px rgba(81, 207, 102, 0.3);
+}
+
+.flashcard.difficulty-medium .card-front,
+.flashcard.difficulty-medium .card-back {
+    border: 3px solid #ffd43b;
+    box-shadow: 0 8px 30px rgba(255, 212, 59, 0.3);
+}
+
+.flashcard.difficulty-hard .card-front,
+.flashcard.difficulty-hard .card-back {
+    border: 3px solid #ff6b6b;
+    box-shadow: 0 8px 30px rgba(255, 107, 107, 0.3);
 }
 
 .word-image {
@@ -406,7 +459,7 @@ body {
     border: 2px solid transparent;
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
     text-align: center;
 }
 
@@ -427,6 +480,23 @@ body {
 .match-word.incorrect {
     border-color: #ff6b6b;
     background: #f8d7da;
+}
+
+/* Ukryj przycisk sprawdź dopasowania w trybie match */
+#match-mode #check-matches {
+    display: none !important;
+}
+
+/* Postęp w trybie match */
+#match-mode .progress-text {
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #667eea;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 8px;
 }
 
 /* Listening Mode */
@@ -458,6 +528,21 @@ body {
 .audio-btn:hover {
     background: #5a6fd8;
     transform: scale(1.05);
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+    }
+    70% {
+        transform: scale(1.05);
+        box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+    }
 }
 
 /* Progress View */

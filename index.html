@@ -96,6 +96,9 @@
                 
                 <!-- Flashcards Mode -->
                 <div id="flashcards-mode" class="study-mode">
+                    <div class="keyboard-hints">
+                        <span>⌨️ Skróty: <kbd>Spacja/Enter</kbd> - przewróć | <kbd>←</kbd> Nie znam | <kbd>→</kbd> Znam</span>
+                    </div>
                     <div class="flashcard" id="flashcard">
                         <div class="card-front">
                             <div class="word-image" id="word-image"></div>
@@ -130,6 +133,7 @@
                 <div id="match-mode" class="study-mode">
                     <div class="match-container">
                         <h3>Połącz polskie słowa z angielskimi:</h3>
+                        <div class="progress-text">Dopasowano: 0/5</div>
                         <div class="match-grid">
                             <div class="match-column">
                                 <h4>Polski</h4>
@@ -209,6 +213,18 @@
                         <label>
                             Nowych słów dziennie:
                             <input type="number" id="daily-goal" min="1" max="50" value="10">
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>Ustawienia fiszek</h3>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="auto-flip-enabled">
+                            <span>🔄 Automatyczne przewracanie fiszek</span>
+                        </label>
+                        <label>
+                            Opóźnienie auto-flip (sekundy):
+                            <input type="number" id="auto-flip-delay" min="1" max="10" value="3">
                         </label>
                     </div>
 
