@@ -51,6 +51,14 @@
                         <div class="stat-number" id="infinite-status">🚀</div>
                         <div class="stat-label">Nieskończona nauka</div>
                     </div>
+                    <div class="stat-card ai-info">
+                        <div class="stat-number" id="total-categories">30</div>
+                        <div class="stat-label">📚 Kategorie słów</div>
+                    </div>
+                    <div class="stat-card ai-info">
+                        <div class="stat-number" id="dynamic-categories">0 AI + 30 bazowych</div>
+                        <div class="stat-label">🎯 Dynamiczne AI</div>
+                    </div>
                 </div>
                 
                 <div class="study-modes">
@@ -259,9 +267,11 @@
                         <label>
                             Dostawca AI:
                             <select id="ai-provider">
+                                <option value="free">Darmowy (bez klucza)</option>
                                 <option value="openai">OpenAI (GPT)</option>
                                 <option value="anthropic">Anthropic (Claude)</option>
                                 <option value="gemini">Google (Gemini)</option>
+                                <option value="huggingface">Hugging Face (Modele Open Source)</option>
                             </select>
                         </label>
                         
@@ -293,6 +303,11 @@
                         <label class="checkbox-label">
                             <input type="checkbox" id="enable-imagen" checked>
                             <span>🖼️ Generuj obrazki z Imagen AI</span>
+                        </label>
+                        
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enable-diki-verification" checked>
+                            <span>📚 Weryfikuj tłumaczenia AI ze słownikiem DIKI</span>
                         </label>
                         
                         <button id="test-ai-connection" class="btn-secondary">🔍 Testuj połączenie AI</button>

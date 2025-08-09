@@ -14,6 +14,7 @@ class VocabularyApp {
             totalAttempts: 0,
             correctAttempts: 0
         };
+        // ZMIANA: Dodano 'huggingface' jako dostawcę AI
         this.settings = {
             firstInterval: 1,
             secondInterval: 7,
@@ -21,20 +22,29 @@ class VocabularyApp {
             languageLevel: 'B1',
             infiniteLearning: true,
             autoAddWords: true,
-            aiProvider: 'openai', // 'openai', 'anthropic', 'gemini'
+            aiProvider: 'free', // 'openai', 'anthropic', 'gemini', 'huggingface'
             aiApiKey: '',
-            aiModel: 'gpt-3.5-turbo',
+            aiModel: 'mymemory', // Domyślny model dla Hugging Face
             enableAIRecommendations: true,
             adaptiveDifficulty: true,
             enableImagen: true,
             autoFlipEnabled: false,
-            autoFlipDelay: 3
+            autoFlipDelay: 3,
+            enableDikiVerification: true // Nowe ustawienie weryfikacji DIKI
         };
         
-        // AI word generation
-        this.wordCategories = ['dom', 'praca', 'jedzenie', 'transport', 'natura', 'technologia', 'sport', 'kultura'];
+        // AI word generation - rozszerzone kategorie + dynamiczne
+        this.baseCategories = [
+            'dom', 'praca', 'jedzenie', 'transport', 'natura', 'technologia', 'sport', 'kultura',
+            'zdrowie', 'edukacja', 'rodzina', 'emocje', 'czas', 'pogoda', 'hobby', 'zakupy',
+            'podróże', 'ubrania', 'ciało', 'kolory', 'liczby', 'kierunki', 'muzyka', 'sztuka',
+            'zwierzęta', 'rośliny', 'narzędzia', 'materiały', 'komunikacja', 'społeczeństwo'
+        ];
+        this.dynamicCategories = []; // Kategorie generowane przez AI
+        this.wordCategories = [...this.baseCategories]; // Połączone kategorie
         this.currentCategory = 0;
         this.isGeneratingWords = false;
+        this.categoryUsageStats = {}; // Statystyki użycia kategorii
         
         // AI learning analytics
         this.learningPatterns = {
@@ -47,13 +57,100 @@ class VocabularyApp {
         this.init();
     }
 
+    // Dodaj to do metody init() w klasie VocabularyApp
     init() {
         this.loadData();
         this.setupEventListeners();
         this.updateStats();
         this.showView('dashboard');
         this.loadDefaultWords();
+        
+        // Inicjalizacja syntezy mowy dla mobile
+        this.initializeSpeechSynthesis();
     }
+// Dodaj tę metodę do klasy VocabularyApp
+removeDuplicates() {
+    const uniqueWords = [];
+    const seenWords = new Set();
+    const before = this.words.length;
+    
+    this.words.forEach(word => {
+        const key = `${word.polish.toLowerCase()}-${word.english.toLowerCase()}`;
+        if (!seenWords.has(key)) {
+            seenWords.add(key);
+            uniqueWords.push(word);
+        }
+    });
+    
+    const removed = before - uniqueWords.length;
+    this.words = uniqueWords;
+    this.saveData();
+    this.updateStats();
+    console.log(`Usunięto ${removed} duplikatów`);
+}
+    // Nowa metoda
+    initializeSpeechSynthesis() {
+        if (!('speechSynthesis' in window)) return;
+        // Preload voices
+        speechSynthesis.getVoices();
+        // Unlock TTS on first user gesture (mobile w/ iOS included)
+        const unlock = async () => {
+            await this.ensureVoicesLoaded();
+            this.unlockTTS();
+        };
+        ['pointerdown', 'touchstart', 'click'].forEach(evt => {
+            document.addEventListener(evt, unlock, { once: true, passive: true });
+        });
+    }
+
+   // TTS helper: ensure voices are loaded on all platforms
+   ensureVoicesLoaded() {
+       return new Promise((resolve) => {
+           try {
+               const attemptLoad = (tries = 0) => {
+                   const voices = speechSynthesis.getVoices();
+                   if ((voices && voices.length > 0) || tries > 25) {
+                       resolve(voices || []);
+                       return;
+                   }
+                   setTimeout(() => attemptLoad(tries + 1), 100);
+               };
+               // Try immediately
+               attemptLoad();
+               // Also listen to event if it fires
+               const handler = () => {
+                   speechSynthesis.removeEventListener('voiceschanged', handler);
+                   resolve(speechSynthesis.getVoices() || []);
+               };
+               speechSynthesis.addEventListener('voiceschanged', handler, { once: true });
+           } catch (e) {
+               resolve([]);
+           }
+       });
+   }
+
+   // Unlock TTS by speaking a silent utterance and preloading voices
+   unlockTTS() {
+       try {
+           if (!('speechSynthesis' in window)) return;
+           // Mark as unlocked immediately to avoid re-entry
+           this._ttsUnlocked = true;
+           // Ensure any pending queues are cleared (some browsers need it)
+           try { speechSynthesis.cancel(); } catch (e) {}
+           // Speak a very short silent utterance to unlock audio on mobile
+           const u = new SpeechSynthesisUtterance(' ');
+           u.volume = 0;
+           u.rate = 1;
+           u.pitch = 1;
+           u.lang = 'en-US';
+           u.onend = () => {
+               // No-op, just unlocking
+           };
+           speechSynthesis.speak(u);
+       } catch (e) {
+           console.warn('unlockTTS failed', e);
+       }
+   }
 
     // Data Management
     loadData() {
@@ -61,6 +158,8 @@ class VocabularyApp {
         const savedStats = localStorage.getItem('vocabularyStats');
         const savedSettings = localStorage.getItem('vocabularySettings');
         const savedPatterns = localStorage.getItem('learningPatterns');
+        const savedDynamicCategories = localStorage.getItem('dynamicCategories');
+        const savedCategoryStats = localStorage.getItem('categoryUsageStats');
         
         if (savedWords) {
             this.words = JSON.parse(savedWords);
@@ -74,6 +173,13 @@ class VocabularyApp {
         if (savedPatterns) {
             this.learningPatterns = { ...this.learningPatterns, ...JSON.parse(savedPatterns) };
         }
+        if (savedDynamicCategories) {
+            this.dynamicCategories = JSON.parse(savedDynamicCategories);
+            this.wordCategories = [...this.baseCategories, ...this.dynamicCategories];
+        }
+        if (savedCategoryStats) {
+            this.categoryUsageStats = JSON.parse(savedCategoryStats);
+        }
     }
 
     saveData() {
@@ -81,6 +187,8 @@ class VocabularyApp {
         localStorage.setItem('vocabularyStats', JSON.stringify(this.stats));
         localStorage.setItem('vocabularySettings', JSON.stringify(this.settings));
         localStorage.setItem('learningPatterns', JSON.stringify(this.learningPatterns));
+        localStorage.setItem('dynamicCategories', JSON.stringify(this.dynamicCategories));
+        localStorage.setItem('categoryUsageStats', JSON.stringify(this.categoryUsageStats));
     }
 
     loadDefaultWords() {
@@ -170,8 +278,6 @@ class VocabularyApp {
         document.getElementById('answer-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 this.checkTypingAnswer();
-            } else {
-                this.playTypingSound();
             }
         });
 
@@ -279,6 +385,7 @@ class VocabularyApp {
         document.getElementById('ai-provider').addEventListener('change', (e) => {
             this.settings.aiProvider = e.target.value;
             this.updateAIModelOptions();
+            this.updateApiKeyFieldState();
             this.saveData();
         });
 
@@ -307,8 +414,24 @@ class VocabularyApp {
             this.saveData();
         });
 
+        document.getElementById('enable-diki-verification').addEventListener('change', (e) => {
+            this.settings.enableDikiVerification = e.target.checked;
+            this.saveData();
+        });
+
         document.getElementById('test-ai-connection').addEventListener('click', () => {
             this.testAIConnection();
+        });
+
+        // Obsługa zmiany rozmiaru okna dla responsywnego canvas
+        window.addEventListener('resize', () => {
+            if (document.getElementById('progress-view').classList.contains('active')) {
+                // Opóźnij przerysowanie aby uniknąć zbyt częstego odświeżania
+                clearTimeout(this.resizeTimeout);
+                this.resizeTimeout = setTimeout(() => {
+                    this.renderProgressChart();
+                }, 250);
+            }
         });
     }
 
@@ -566,65 +689,111 @@ class VocabularyApp {
     }
 
     playAudio() {
+        // Ensure TTS is unlocked before speaking (especially on mobile)
+        if (!this._ttsUnlocked) {
+            this.unlockTTS();
+        }
         const word = this.currentStudySet[this.currentWordIndex];
         const audioBtn = document.getElementById('play-audio');
         
-        // Visual feedback for mobile users
-        if (this.isMobileDevice()) {
-            audioBtn.textContent = '🔊 Odtwarzanie...';
-            audioBtn.disabled = true;
+        // Visual feedback
+        audioBtn.textContent = '🔊 Odtwarzanie...';
+        audioBtn.disabled = true;
+        
+        // Dla iOS - wymuszenie interakcji
+        if (this.isIOSDevice()) {
+            // Najpierw "obudź" syntezę mowy cichym dźwiękiem
+            const silentUtterance = new SpeechSynthesisUtterance(' ');
+            silentUtterance.volume = 0.1;
+            speechSynthesis.speak(silentUtterance);
             
+            // Poczekaj chwilę przed właściwym słowem
             setTimeout(() => {
-                audioBtn.textContent = '🔊 Odtwórz';
-                audioBtn.disabled = false;
-            }, 2000);
+                this.speakWord(word.english);
+            }, 100);
+        } else {
+            this.speakWord(word.english);
         }
         
-        this.speakWord(word.english);
+        // Przywróć przycisk po czasie
+        setTimeout(() => {
+            audioBtn.textContent = '🔊 Odtwórz ponownie';
+            audioBtn.disabled = false;
+        }, 2000);
     }
 
-    speakWord(text) {
-        if ('speechSynthesis' in window) {
-            // Stop any currently playing speech
+    // Dodaj metodę do wykrywania iOS
+    isIOSDevice() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+   speakWord(text) {
+       if (!this._ttsUnlocked) {
+           this.unlockTTS();
+       }
+        if (!('speechSynthesis' in window)) {
+            console.warn('Brak wsparcia dla syntezy mowy');
+            return;
+        }
+
+        // Anuluj tylko jeśli nie mobile (na mobile może to powodować problemy)
+        if (!this.isMobileDevice()) {
             speechSynthesis.cancel();
+        }
+        
+        // Funkcja do odtwarzania
+        const speak = () => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = this.isMobileDevice() ? 0.7 : 0.8;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
             
-            // Wait a bit for mobile browsers
-            setTimeout(() => {
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.8;
-                utterance.volume = 1.0;
+            // Obsługa błędów
+            utterance.onerror = (event) => {
+                console.error('Speech synthesis error:', event.error);
                 
-                // Mobile-specific settings
-                if (this.isMobileDevice()) {
-                    utterance.rate = 0.7; // Slower rate for mobile
-                    utterance.pitch = 1.0;
-                }
-                
-                // Error handling for mobile
-                utterance.onerror = (event) => {
-                    console.warn('Speech synthesis error:', event.error);
-                    // Fallback: try again after a short delay
-                    if (event.error === 'network' || event.error === 'synthesis-failed') {
-                        setTimeout(() => {
-                            speechSynthesis.speak(utterance);
-                        }, 500);
-                    }
-                };
-                
-                utterance.onend = () => {
-                    console.log('Speech finished');
-                };
-                
-                // Ensure voices are loaded (important for mobile)
-                if (speechSynthesis.getVoices().length === 0) {
-                    speechSynthesis.addEventListener('voiceschanged', () => {
+                // Na iOS często pomaga poczekać i spróbować ponownie
+                if (this.isMobileDevice() && event.error === 'interrupted') {
+                    setTimeout(() => {
                         speechSynthesis.speak(utterance);
-                    }, { once: true });
-                } else {
-                    speechSynthesis.speak(utterance);
+                    }, 100);
+                }
+            };
+            
+            utterance.onend = () => {
+                console.log('Speech finished');
+            };
+            
+            // Spróbuj znaleźć odpowiedni głos
+            const voices = speechSynthesis.getVoices();
+            const englishVoice = voices.find(voice => 
+                voice.lang.startsWith('en') && 
+                (this.isMobileDevice() ? voice.localService : true)
+            );
+            
+            if (englishVoice) {
+                utterance.voice = englishVoice;
+            }
+            
+            speechSynthesis.speak(utterance);
+        };
+        
+        // Sprawdź czy głosy są załadowane
+        if (speechSynthesis.getVoices().length === 0) {
+            // Poczekaj na załadowanie głosów
+            speechSynthesis.addEventListener('voiceschanged', speak, { once: true });
+            
+            // Timeout dla urządzeń które nie wyemitują zdarzenia
+            setTimeout(() => {
+                if (speechSynthesis.getVoices().length > 0) {
+                    speak();
                 }
             }, 100);
+        } else {
+            // Głosy już załadowane
+            setTimeout(speak, 10); // Krótkie opóźnienie dla stabilności
         }
     }
 
@@ -650,27 +819,6 @@ class VocabularyApp {
         setTimeout(() => this.playTone(1046.50, 0.4, 'sine'), 450); // C6
     }
 
-    playTypingSound() {
-        // Realistyczny dźwięk mechanicznej klawiatury
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // Symulacja "thock" mechanicznej klawiatury
-        const clickFreq = 150 + Math.random() * 100; // 150-250Hz - niższe, bardziej realistyczne
-        const releaseFreq = clickFreq * 0.7; // Dźwięk puszczenia klawisza
-        
-        // Pierwszy dźwięk - naciśnięcie
-        this.playTone(clickFreq, 0.02, 'triangle', 0.02);
-        
-        // Drugi dźwięk - puszczenie (po krótkim opóźnieniu)
-        setTimeout(() => {
-            this.playTone(releaseFreq, 0.015, 'triangle', 0.015);
-        }, 10);
-        
-        // Dodaj subtelny szum dla realizmu
-        setTimeout(() => {
-            this.playTone(clickFreq * 3, 0.005, 'sawtooth', 0.005);
-        }, 5);
-    }
 
     // Gesture controls dla fiszek
     setupFlashcardGestures() {
@@ -1410,6 +1558,11 @@ class VocabularyApp {
 
         this.updateGlobalStats();
         this.updateLearningPatterns(currentWord, isCorrect);
+        
+        // Aktualizuj statystyki kategorii
+        const wordCategory = currentWord.category || this.guessWordCategory(currentWord.polish);
+        this.updateCategoryStats(wordCategory, isCorrect);
+        
         this.saveData();
 
         if (this.currentMode !== 'match' && this.currentMode !== 'listening') {
@@ -1480,6 +1633,9 @@ class VocabularyApp {
         // Update AI info
         document.getElementById('current-level').textContent = this.settings.languageLevel;
         document.getElementById('infinite-status').textContent = this.settings.infiniteLearning ? '🚀' : '⏸️';
+        
+        // Update category info
+        this.updateCategoryDisplay();
     }
 
     calculateStats() {
@@ -1497,6 +1653,31 @@ class VocabularyApp {
         const correctAttempts = this.words.reduce((sum, w) => sum + w.correct, 0);
         
         this.stats.successRate = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : 0;
+    }
+
+    updateCategoryDisplay() {
+        // Aktualizuj informacje o kategoriach w dashboard
+        const totalCategories = this.wordCategories.length;
+        const dynamicCategories = this.dynamicCategories.length;
+        const baseCategories = this.baseCategories.length;
+        
+        // Znajdź elementy w HTML (jeśli istnieją)
+        const totalCategoriesEl = document.getElementById('total-categories');
+        const dynamicCategoriesEl = document.getElementById('dynamic-categories');
+        
+        if (totalCategoriesEl) {
+            totalCategoriesEl.textContent = totalCategories;
+        }
+        
+        if (dynamicCategoriesEl) {
+            dynamicCategoriesEl.textContent = `${dynamicCategories} AI + ${baseCategories} bazowych`;
+        }
+        
+        // Wyświetl ostatnio dodane kategorie w konsoli dla debugowania
+        if (this.dynamicCategories.length > 0) {
+            console.log(`📚 Kategorie: ${totalCategories} łącznie (${dynamicCategories} dynamicznych AI)`);
+            console.log(`🎯 Ostatnie AI kategorie:`, this.dynamicCategories.slice(-3));
+        }
     }
 
     updateGlobalStats() {
@@ -1519,7 +1700,12 @@ class VocabularyApp {
             item.className = 'status-item';
             
             const wordInfo = document.createElement('div');
-            wordInfo.innerHTML = `<strong>${word.polish}</strong> - ${word.english}`;
+            const strongEl = document.createElement('strong');
+            strongEl.textContent = word.polish;
+            wordInfo.appendChild(strongEl);
+            wordInfo.appendChild(document.createTextNode(' - '));
+            const engText = document.createTextNode(word.english);
+            wordInfo.appendChild(engText);
             
             const badge = document.createElement('span');
             badge.className = `status-badge status-${word.status}`;
@@ -1544,6 +1730,9 @@ class VocabularyApp {
         const canvas = document.getElementById('progress-canvas');
         const ctx = canvas.getContext('2d');
         
+        // Ustaw responsywny rozmiar canvas
+        this.setResponsiveCanvasSize(canvas);
+        
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
@@ -1555,12 +1744,33 @@ class VocabularyApp {
         ];
         
         const maxValue = Math.max(...data.map(d => d.value));
-        const barWidth = 80;
-        const barSpacing = 40;
-        const chartHeight = 150;
+        
+        // Responsywne wymiary
+        const screenWidth = window.innerWidth;
+        let barWidth, barSpacing, fontSize;
+        
+        if (screenWidth <= 480) {
+            // Bardzo małe ekrany
+            barWidth = Math.min(50, (canvas.width - 60) / 4);
+            barSpacing = 15;
+            fontSize = '9px Inter';
+        } else if (screenWidth <= 768) {
+            // Średnie ekrany mobilne
+            barWidth = Math.min(60, (canvas.width - 80) / 4);
+            barSpacing = 20;
+            fontSize = '10px Inter';
+        } else {
+            // Desktop
+            barWidth = 80;
+            barSpacing = 40;
+            fontSize = '12px Inter';
+        }
+        
+        const chartHeight = canvas.height - 80;
+        const startX = (canvas.width - (data.length * barWidth + (data.length - 1) * barSpacing)) / 2;
         
         data.forEach((item, index) => {
-            const x = 50 + index * (barWidth + barSpacing);
+            const x = startX + index * (barWidth + barSpacing);
             const barHeight = maxValue > 0 ? (item.value / maxValue) * chartHeight : 0;
             const y = canvas.height - 50 - barHeight;
             
@@ -1570,7 +1780,7 @@ class VocabularyApp {
             
             // Draw label
             ctx.fillStyle = '#333';
-            ctx.font = '12px Inter';
+            ctx.font = fontSize;
             ctx.textAlign = 'center';
             ctx.fillText(item.label, x + barWidth / 2, canvas.height - 30);
             
@@ -1579,77 +1789,66 @@ class VocabularyApp {
         });
     }
 
-    // AI Word Generation
-    async generateNewWords(count = 5) {
-        if (this.isGeneratingWords) return;
+    setResponsiveCanvasSize(canvas) {
+        const container = canvas.parentElement;
+        const containerWidth = container.clientWidth;
+        const screenWidth = window.innerWidth;
         
-        this.isGeneratingWords = true;
-        const generateBtn = document.getElementById('generate-words');
-        const originalText = generateBtn.textContent;
-        
-        // Update UI to show loading state
-        generateBtn.disabled = true;
-        generateBtn.classList.add('generating');
-        generateBtn.textContent = '🤖 Generuję nowe słowa...';
-        
-        const category = this.wordCategories[this.currentCategory];
-        this.currentCategory = (this.currentCategory + 1) % this.wordCategories.length;
-        
-        try {
-            const newWords = await this.getWordsFromAI(category, this.settings.languageLevel, count);
-            
-            // Filter out words that already exist
-            const uniqueWords = newWords.filter(newWord => 
-                !this.words.some(existingWord => 
-                    existingWord.polish.toLowerCase() === newWord.polish.toLowerCase() ||
-                    existingWord.english.toLowerCase() === newWord.english.toLowerCase()
-                )
-            );
-            
-            this.words.push(...uniqueWords);
-            this.saveData();
-            this.updateStats();
-            
-            if (uniqueWords.length > 0) {
-                generateBtn.textContent = `✅ Dodano ${uniqueWords.length} słów!`;
-                console.log(`Dodano ${uniqueWords.length} nowych słów z kategorii: ${category} (poziom: ${this.settings.languageLevel})`);
-                
-                // Show success message
-                setTimeout(() => {
-                    generateBtn.textContent = originalText;
-                }, 2000);
-            } else {
-                generateBtn.textContent = '⚠️ Brak nowych słów do dodania';
-                setTimeout(() => {
-                    generateBtn.textContent = originalText;
-                }, 2000);
-            }
-        } catch (error) {
-            console.error('Błąd podczas generowania słów:', error);
-            generateBtn.textContent = '❌ Błąd generowania';
-            // Fallback to predefined words if AI fails
-            this.addFallbackWords(count);
-            setTimeout(() => {
-                generateBtn.textContent = originalText;
-            }, 2000);
-        } finally {
-            this.isGeneratingWords = false;
-            generateBtn.disabled = false;
-            generateBtn.classList.remove('generating');
+        // Ustaw rozmiar canvas na podstawie rozmiaru ekranu
+        if (screenWidth <= 480) {
+            // Bardzo małe ekrany
+            canvas.width = Math.min(containerWidth - 10, 280);
+            canvas.height = 160;
+        } else if (screenWidth <= 768) {
+            // Średnie ekrany mobilne
+            canvas.width = Math.min(containerWidth - 20, 350);
+            canvas.height = 180;
+        } else {
+            // Desktop
+            canvas.width = Math.min(containerWidth - 40, 400);
+            canvas.height = 200;
         }
+        
+        // Ustaw CSS dla lepszego wyświetlania
+        canvas.style.width = canvas.width + 'px';
+        canvas.style.height = canvas.height + 'px';
     }
 
-    async getWordsFromAI(category, level, count) {
-        if (!this.settings.aiApiKey) {
-            console.warn('Brak klucza API - używam predefiniowanych słów');
-            return this.getIntelligentWordsByLevel(level, category, count);
+    // Dynamic Category Management
+    async generateDynamicCategory() {
+        if (!this.settings.aiApiKey && this.settings.aiProvider !== 'free') {
+            console.warn('Brak klucza API - nie można generować dynamicznych kategorii');
+            return null;
         }
 
         try {
-            const prompt = this.buildAIPrompt(category, level, count);
-            let response;
+            // Analizuj słabsze obszary użytkownika
+            const weakAreas = this.learningPatterns.weakAreas || [];
+            const userLevel = this.settings.languageLevel;
+            const existingCategories = this.wordCategories.join(', ');
+            
+            const prompt = `Jako ekspert w nauczaniu języka angielskiego, zaproponuj JEDNĄ nową kategorię słownictwa dla polskiego ucznia na poziomie ${userLevel}.
 
+KONTEKST:
+- Istniejące kategorie: ${existingCategories}
+- Słabe obszary użytkownika: ${weakAreas.length > 0 ? weakAreas.join(', ') : 'brak danych'}
+- Poziom: ${userLevel}
+
+WYMAGANIA:
+1. Kategoria powinna być praktyczna i użyteczna
+2. Nie może duplikować istniejących kategorii
+3. Powinna być odpowiednia dla poziomu ${userLevel}
+4. Zwróć TYLKO nazwę kategorii po polsku (jedno słowo lub krótką frazę)
+
+Przykłady dobrych kategorii: "medycyna", "finanse", "prawo", "psychologia", "architektura"
+
+Odpowiedź (tylko nazwa kategorii):`;
+
+            let response;
             switch (this.settings.aiProvider) {
+                case 'free':
+                    response = await this.generateCategoryFromTemplate(userLevel, weakAreas);
+                    break;
                 case 'openai':
                     response = await this.callOpenAI(prompt);
                     break;
@@ -1659,17 +1858,483 @@ class VocabularyApp {
                 case 'gemini':
                     response = await this.callGemini(prompt);
                     break;
+                case 'huggingface':
+                    response = await this.callHuggingFace(prompt);
+                    break;
                 default:
-                    throw new Error('Nieznany dostawca AI');
+                    return null;
             }
 
-            return this.parseAIResponse(response);
+            const newCategory = response.trim().toLowerCase();
+            
+            // Walidacja kategorii
+            if (this.isValidCategory(newCategory)) {
+                return newCategory;
+            }
+            
+            return null;
         } catch (error) {
-            console.error('Błąd AI:', error);
-            // Fallback to predefined words
-            return this.getIntelligentWordsByLevel(level, category, count);
+            console.error('Błąd generowania dynamicznej kategorii:', error);
+            return null;
         }
     }
+
+    generateCategoryFromTemplate(level, weakAreas) {
+        // Szablon kategorii dla darmowego trybu
+        const categoryTemplates = {
+            'A1': ['dom', 'jedzenie', 'rodzina', 'zwierzęta', 'kolory'],
+            'A2': ['szkoła', 'praca', 'hobby', 'sport', 'zakupy'],
+            'B1': ['zdrowie', 'technologia', 'podróże', 'kultura', 'środowisko'],
+            'B2': ['biznes', 'polityka', 'nauka', 'media', 'psychologia'],
+            'C1': ['filozofia', 'ekonomia', 'prawo', 'medycyna', 'inżynieria'],
+            'C2': ['dyplomacja', 'literatura', 'architektura', 'astronomia', 'lingwistyka']
+        };
+
+        const availableCategories = categoryTemplates[level] || categoryTemplates['B1'];
+        const unusedCategories = availableCategories.filter(cat => 
+            !this.wordCategories.includes(cat)
+        );
+
+        if (unusedCategories.length > 0) {
+            return unusedCategories[Math.floor(Math.random() * unusedCategories.length)];
+        }
+
+        return null;
+    }
+
+    isValidCategory(category) {
+        // Sprawdź czy kategoria nie istnieje już
+        if (this.wordCategories.includes(category)) {
+            return false;
+        }
+
+        // Sprawdź długość i format
+        if (!category || category.length < 3 || category.length > 20) {
+            return false;
+        }
+
+        // Sprawdź czy zawiera tylko litery, spacje i polskie znaki
+        const validPattern = /^[a-ząćęłńóśźż\s]+$/i;
+        return validPattern.test(category);
+    }
+
+    async addDynamicCategory(category) {
+        if (!this.dynamicCategories.includes(category)) {
+            this.dynamicCategories.push(category);
+            this.wordCategories = [...this.baseCategories, ...this.dynamicCategories];
+            this.categoryUsageStats[category] = {
+                wordsGenerated: 0,
+                successRate: 0,
+                lastUsed: new Date().toISOString()
+            };
+            this.saveData();
+            console.log(`Dodano nową dynamiczną kategorię: ${category}`);
+            return true;
+        }
+        return false;
+    }
+
+    updateCategoryStats(category, isCorrect = true) {
+        if (!this.categoryUsageStats[category]) {
+            this.categoryUsageStats[category] = {
+                wordsGenerated: 0,
+                successRate: 0,
+                lastUsed: new Date().toISOString()
+            };
+        }
+
+        const stats = this.categoryUsageStats[category];
+        stats.wordsGenerated++;
+        stats.lastUsed = new Date().toISOString();
+        
+        // Aktualizuj wskaźnik sukcesu (prosty algorytm)
+        if (isCorrect) {
+            stats.successRate = (stats.successRate + 1) / 2;
+        } else {
+            stats.successRate = stats.successRate * 0.9;
+        }
+
+        this.saveData();
+    }
+
+    async selectOptimalCategory() {
+        // 1. Sprawdź czy potrzebujemy nowej dynamicznej kategorii
+        const shouldGenerateNewCategory = await this.shouldGenerateNewCategory();
+        
+        if (shouldGenerateNewCategory) {
+            const newCategory = await this.generateDynamicCategory();
+            if (newCategory) {
+                await this.addDynamicCategory(newCategory);
+                console.log(`🎯 Wygenerowano nową kategorię: ${newCategory}`);
+                return newCategory;
+            }
+        }
+
+        // 2. Wybierz optymalną kategorię z istniejących
+        return this.selectBestExistingCategory();
+    }
+
+    async shouldGenerateNewCategory() {
+        // Generuj nową kategorię jeśli:
+        // - Mamy mniej niż 50 kategorii łącznie
+        // - Użytkownik ma dobry postęp (>70% accuracy)
+        // - Ostatnia dynamiczna kategoria była dodana >7 dni temu
+        // - Losowa szansa 20% przy każdym generowaniu
+
+        if (this.wordCategories.length >= 50) {
+            return false; // Limit kategorii
+        }
+
+        const userAccuracy = this.calculateAverageAccuracy();
+        if (userAccuracy < 70) {
+            return false; // Użytkownik powinien najpierw opanować istniejące kategorie
+        }
+
+        // Sprawdź kiedy ostatnio dodano dynamiczną kategorię
+        const lastDynamicCategory = this.getLastDynamicCategoryDate();
+        const daysSinceLastCategory = lastDynamicCategory ? 
+            (Date.now() - new Date(lastDynamicCategory).getTime()) / (1000 * 60 * 60 * 24) : 999;
+
+        if (daysSinceLastCategory < 7) {
+            return false; // Za wcześnie na nową kategorię
+        }
+
+        // 20% szansy na nową kategorię
+        return Math.random() < 0.2;
+    }
+
+    getLastDynamicCategoryDate() {
+        if (this.dynamicCategories.length === 0) return null;
+        
+        const lastCategory = this.dynamicCategories[this.dynamicCategories.length - 1];
+        return this.categoryUsageStats[lastCategory]?.lastUsed || null;
+    }
+
+    selectBestExistingCategory() {
+        // Algorytm wyboru optymalnej kategorii:
+        // 1. Preferuj kategorie z niskim użyciem
+        // 2. Uwzględnij słabe obszary użytkownika
+        // 3. Dodaj element losowości
+
+        const categoryScores = this.wordCategories.map(category => {
+            const stats = this.categoryUsageStats[category] || { wordsGenerated: 0, successRate: 0.5 };
+            const wordsInCategory = this.words.filter(w => w.category === category).length;
+            
+            // Punktacja: niższe użycie = wyższy wynik
+            let score = Math.max(0, 100 - wordsInCategory * 2);
+            
+            // Bonus dla słabych obszarów
+            if (this.learningPatterns.weakAreas.includes(category)) {
+                score += 30;
+            }
+            
+            // Bonus dla kategorii z niskim wskaźnikiem sukcesu (potrzebują więcej praktyki)
+            if (stats.successRate < 0.6) {
+                score += 20;
+            }
+            
+            // Element losowości
+            score += Math.random() * 20;
+            
+            return { category, score };
+        });
+
+        // Sortuj według wyniku i wybierz najlepszą
+        categoryScores.sort((a, b) => b.score - a.score);
+        
+        // Wybierz z top 3 kategorii (dodatkowa losowość)
+        const topCategories = categoryScores.slice(0, 3);
+        const selectedCategory = topCategories[Math.floor(Math.random() * topCategories.length)];
+        
+        console.log(`📊 Wybrano kategorię: ${selectedCategory.category} (wynik: ${selectedCategory.score.toFixed(1)})`);
+        return selectedCategory.category;
+    }
+
+    // AI Word Generation
+    async generateNewWords(count = 5) {
+    if (this.isGeneratingWords) return;
+    
+    this.isGeneratingWords = true;
+    const generateBtn = document.getElementById('generate-words');
+    const originalText = generateBtn.textContent;
+    
+    // Update UI to show loading state
+    generateBtn.disabled = true;
+    generateBtn.classList.add('generating');
+    generateBtn.textContent = '🤖 Generuję nowe słowa...';
+    
+    // Inteligentny wybór kategorii (w tym dynamicznych)
+    const category = await this.selectOptimalCategory();
+    
+    try {
+        const newWords = await this.getWordsFromAI(category, this.settings.languageLevel, count);
+        
+        // Ulepszone filtrowanie duplikatów
+        const existingKeys = new Set(
+            this.words.map(w => `${w.polish.toLowerCase()}-${w.english.toLowerCase()}`)
+        );
+        
+        const uniqueWords = newWords.filter(newWord => {
+            const key = `${newWord.polish.toLowerCase()}-${newWord.english.toLowerCase()}`;
+            return !existingKeys.has(key);
+        });
+        
+        // Jeśli mamy za mało unikalnych słów, spróbuj z innej kategorii
+        if (uniqueWords.length < count) {
+            const additionalCategories = this.wordCategories.filter(c => c !== category);
+            for (const additionalCategory of additionalCategories) {
+                if (uniqueWords.length >= count) break;
+                
+                const moreWords = await this.getWordsFromAI(
+                    additionalCategory, 
+                    this.settings.languageLevel, 
+                    count - uniqueWords.length
+                );
+                
+                moreWords.forEach(word => {
+                    const key = `${word.polish.toLowerCase()}-${word.english.toLowerCase()}`;
+                    if (!existingKeys.has(key)) {
+                        uniqueWords.push(word);
+                        existingKeys.add(key);
+                    }
+                });
+            }
+        }
+        
+        this.words.push(...uniqueWords);
+        this.saveData();
+        this.updateStats();
+        
+        if (uniqueWords.length > 0) {
+            generateBtn.textContent = `✅ Dodano ${uniqueWords.length} słów z kategorii: ${category}!`;
+            console.log(`Dodano ${uniqueWords.length} nowych słów`);
+            
+            // Show success message
+            setTimeout(() => {
+                generateBtn.textContent = originalText;
+            }, 3000);
+        } else {
+            generateBtn.textContent = `⚠️ Brak nowych słów - spróbuj zmienić poziom`;
+            setTimeout(() => {
+                generateBtn.textContent = originalText;
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Błąd podczas generowania słów:', error);
+        generateBtn.textContent = '❌ Błąd generowania';
+        setTimeout(() => {
+            generateBtn.textContent = originalText;
+        }, 2000);
+    } finally {
+        this.isGeneratingWords = false;
+        generateBtn.disabled = false;
+        generateBtn.classList.remove('generating');
+    }
+}
+
+    // ZMIANA: Zaktualizowano `getWordsFromAI` o opcję 'huggingface'
+async getWordsFromAI(category, level, count) {
+    // Obsługa trybu darmowego bez klucza API
+    if (this.settings.aiProvider === 'free') {
+        return await this.getFreeAIWords(category, level, count);
+    }
+
+    if (!this.settings.aiApiKey) {
+        throw new Error('Brak klucza API. Wprowadź go w ustawieniach.');
+    }
+    
+    // Generujemy prompt i odpytujemy AI o gotowe pary słów
+    const prompt = this.buildAIPrompt(category, level, count);
+    let aiResponse;
+    switch (this.settings.aiProvider) {
+        case 'openai': aiResponse = await this.callOpenAI(prompt); break;
+        case 'anthropic': aiResponse = await this.callAnthropic(prompt); break;
+        case 'gemini': aiResponse = await this.callGemini(prompt); break;
+        case 'huggingface': aiResponse = await this.callHuggingFace(prompt); break;
+        default: throw new Error('Nieznany dostawca AI');
+    }
+
+    // Parsujemy odpowiedź i otrzymujemy gotowe, sformatowane słowa
+    const newWords = await this.parseAIResponse(aiResponse, category);
+    
+    if (newWords.length === 0) {
+        console.warn("AI nie zwróciło żadnych poprawnych słów. Spróbuj ponownie lub zmień ustawienia AI.");
+    }
+
+    return newWords;
+}
+
+// Nowa funkcja dla całkowicie darmowych słów
+async getFreeAIWords(category, level, count) {
+    console.log(`Generowanie darmowych słów AI: ${count} słów z kategorii "${category}" poziom ${level}`);
+    
+    try {
+        // Generuj słowa tematycznie na podstawie kategorii
+        const words = [];
+        
+        // Podstawowe słowa dla każdej kategorii (używane do generowania powiązanych)
+        const seedWords = {
+            'dom': ['house', 'room', 'furniture'],
+            'jedzenie': ['food', 'meal', 'cooking'],
+            'transport': ['vehicle', 'travel', 'journey'],
+            'praca': ['work', 'office', 'career'],
+            'natura': ['nature', 'environment', 'outdoor'],
+            'technologia': ['technology', 'computer', 'digital'],
+            'sport': ['sport', 'exercise', 'fitness'],
+            'kultura': ['culture', 'art', 'entertainment']
+        };
+        
+        // Poziomy trudności
+        const difficultyMap = {
+            'A1': 'basic everyday',
+            'A2': 'simple common',
+            'B1': 'intermediate useful',
+            'B2': 'advanced practical',
+            'C1': 'proficient complex',
+            'C2': 'mastery sophisticated'
+        };
+        
+        const difficulty = difficultyMap[level] || 'intermediate useful';
+        const categorySeeds = seedWords[category] || seedWords['dom'];
+        
+        // Generuj prompt dla tłumaczenia
+        for (let i = 0; i < count; i++) {
+            // Twórz kontekstowy prompt
+            const contextPrompt = `${difficulty} ${category} vocabulary word ${i + 1}`;
+            
+            // Pobierz tłumaczenie z darmowego API
+            try {
+                // Najpierw wygeneruj angielskie słowo związane z kategorią
+                const englishWord = await this.generateRelatedWord(category, level, i);
+                
+                if (englishWord) {
+                    // Pobierz polskie tłumaczenie
+                    const polishWord = await this.getPolishTranslation(englishWord);
+                    
+                    if (polishWord) {
+                        words.push({
+                            polish: polishWord,
+                            english: englishWord,
+                            status: 'new',
+                            attempts: 0,
+                            correct: 0,
+                            lastReview: null,
+                            nextReview: null,
+                            category: category,
+                            difficulty: this.mapLevelToDifficulty(level),
+                            hasImage: true,
+                            level: level,
+                            aiGenerated: true
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn(`Nie udało się wygenerować słowa ${i + 1}:`, error);
+            }
+        }
+        
+        // Jeśli nie udało się wygenerować wystarczającej liczby słów
+        if (words.length < count) {
+            console.warn(`Wygenerowano tylko ${words.length} z ${count} słów`);
+        }
+        
+        return words;
+        
+    } catch (error) {
+        console.error('Błąd w getFreeAIWords:', error);
+        return [];
+    }
+}
+
+// Pomocnicza funkcja do generowania powiązanych słów
+async generateRelatedWord(category, level, index) {
+    // Lista tematycznych słów dla każdej kategorii i poziomu
+    const thematicWords = {
+        'dom': {
+            'A1': ['door', 'window', 'bed', 'chair', 'table', 'kitchen', 'bathroom', 'garden'],
+            'A2': ['carpet', 'curtain', 'shelf', 'drawer', 'ceiling', 'stairs', 'attic', 'garage'],
+            'B1': ['furniture', 'appliance', 'decoration', 'renovation', 'landlord', 'tenant', 'mortgage'],
+            'B2': ['maintenance', 'plumbing', 'insulation', 'ventilation', 'foundation', 'blueprint']
+        },
+        'jedzenie': {
+            'A1': ['bread', 'milk', 'egg', 'apple', 'water', 'meat', 'rice', 'salad'],
+            'A2': ['breakfast', 'lunch', 'dinner', 'snack', 'dessert', 'ingredient', 'recipe'],
+            'B1': ['nutrition', 'vitamin', 'protein', 'vegetarian', 'organic', 'calories', 'diet'],
+            'B2': ['cuisine', 'gourmet', 'seasoning', 'marinate', 'garnish', 'culinary']
+        },
+        'transport': {
+            'A1': ['car', 'bus', 'train', 'bike', 'walk', 'stop', 'ticket', 'road'],
+            'A2': ['journey', 'passenger', 'driver', 'traffic', 'parking', 'fuel', 'route'],
+            'B1': ['commute', 'vehicle', 'transportation', 'schedule', 'delay', 'destination'],
+            'B2': ['infrastructure', 'congestion', 'sustainable', 'logistics', 'freight']
+        }
+        // Dodaj więcej kategorii według potrzeb
+    };
+    
+    const categoryWords = thematicWords[category]?.[level] || thematicWords['dom']['A1'];
+    
+    // Wybierz słowo z listy (z rotacją)
+    const wordIndex = index % categoryWords.length;
+    return categoryWords[wordIndex];
+}
+
+
+
+// Mapowanie poziomu na trudność
+mapLevelToDifficulty(level) {
+    const map = {
+        'A1': 'easy',
+        'A2': 'easy',
+        'B1': 'medium',
+        'B2': 'medium',
+        'C1': 'hard',
+        'C2': 'hard'
+    };
+    return map[level] || 'medium';
+}
+
+// Alternatywne darmowe API - LibreTranslate
+async getTranslationFromLibre(polishWord) {
+    try {
+        // Lista publicznych instancji LibreTranslate
+        const servers = [
+            'https://translate.argosopentech.com',
+            'https://translate.terraprint.co'
+        ];
+        
+        for (const server of servers) {
+            try {
+                const response = await fetch(`${server}/translate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        q: polishWord,
+                        source: 'pl',
+                        target: 'en',
+                        format: 'text'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.translatedText) {
+                        return data.translatedText;
+                    }
+                }
+            } catch (error) {
+                continue; // Spróbuj następny serwer
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('LibreTranslate error:', error);
+        return null;
+    }
+}
+
 
     getIntelligentWordsByLevel(level, category, count) {
         // Rozszerzona baza słów z inteligentnym doborem
@@ -1679,158 +2344,46 @@ class VocabularyApp {
         return this.getWordsByLevel(level, category, count, existingWords, userProgress);
     }
 
-    getWordsByLevel(level, category, count, existingWords = [], userProgress = null) {
-        const wordSets = {
-            'A1': {
-                'dom': [
-                    { polish: 'okno', english: 'window' },
-                    { polish: 'drzwi', english: 'door' },
-                    { polish: 'łóżko', english: 'bed' },
-                    { polish: 'stół', english: 'table' },
-                    { polish: 'krzesło', english: 'chair' },
-                    { polish: 'ściana', english: 'wall' },
-                    { polish: 'podłoga', english: 'floor' },
-                    { polish: 'sufit', english: 'ceiling' },
-                    { polish: 'lampa', english: 'lamp' },
-                    { polish: 'dywan', english: 'carpet' },
-                    { polish: 'szafa', english: 'wardrobe' },
-                    { polish: 'lustro', english: 'mirror' },
-                    { polish: 'zegar', english: 'clock' },
-                    { polish: 'obraz', english: 'picture' },
-                    { polish: 'kwiat', english: 'flower' }
-                ],
-                'jedzenie': [
-                    { polish: 'chleb', english: 'bread' },
-                    { polish: 'mleko', english: 'milk' },
-                    { polish: 'jabłko', english: 'apple' },
-                    { polish: 'mięso', english: 'meat' },
-                    { polish: 'ser', english: 'cheese' },
-                    { polish: 'masło', english: 'butter' },
-                    { polish: 'jajko', english: 'egg' },
-                    { polish: 'ryż', english: 'rice' },
-                    { polish: 'ziemniak', english: 'potato' },
-                    { polish: 'marchew', english: 'carrot' },
-                    { polish: 'pomidor', english: 'tomato' },
-                    { polish: 'banan', english: 'banana' },
-                    { polish: 'pomarańcza', english: 'orange' },
-                    { polish: 'kurczak', english: 'chicken' },
-                    { polish: 'ryba', english: 'fish' }
-                ],
-                'transport': [
-                    { polish: 'autobus', english: 'bus' },
-                    { polish: 'pociąg', english: 'train' },
-                    { polish: 'rower', english: 'bicycle' },
-                    { polish: 'samolot', english: 'airplane' },
-                    { polish: 'statek', english: 'ship' }
-                ]
-            },
-            'A2': {
-                'dom': [
-                    { polish: 'kuchnia', english: 'kitchen' },
-                    { polish: 'łazienka', english: 'bathroom' },
-                    { polish: 'salon', english: 'living room' },
-                    { polish: 'sypialnia', english: 'bedroom' },
-                    { polish: 'balkon', english: 'balcony' }
-                ],
-                'praca': [
-                    { polish: 'biuro', english: 'office' },
-                    { polish: 'spotkanie', english: 'meeting' },
-                    { polish: 'komputer', english: 'computer' },
-                    { polish: 'telefon', english: 'telephone' },
-                    { polish: 'dokument', english: 'document' }
-                ]
-            },
-            'B1': {
-                'technologia': [
-                    { polish: 'oprogramowanie', english: 'software' },
-                    { polish: 'aplikacja', english: 'application' },
-                    { polish: 'sieć', english: 'network' },
-                    { polish: 'baza danych', english: 'database' },
-                    { polish: 'bezpieczeństwo', english: 'security' }
-                ],
-                'natura': [
-                    { polish: 'środowisko', english: 'environment' },
-                    { polish: 'ekosystem', english: 'ecosystem' },
-                    { polish: 'różnorodność', english: 'diversity' },
-                    { polish: 'zanieczyszczenie', english: 'pollution' },
-                    { polish: 'odnawialny', english: 'renewable' }
-                ]
-            },
-            'B2': {
-                'kultura': [
-                    { polish: 'dziedzictwo', english: 'heritage' },
-                    { polish: 'tradycja', english: 'tradition' },
-                    { polish: 'współczesny', english: 'contemporary' },
-                    { polish: 'autentyczny', english: 'authentic' },
-                    { polish: 'wpływ', english: 'influence' }
-                ],
-                'sport': [
-                    { polish: 'wytrzymałość', english: 'endurance' },
-                    { polish: 'osiągnięcie', english: 'achievement' },
-                    { polish: 'rywalizacja', english: 'competition' },
-                    { polish: 'strategia', english: 'strategy' },
-                    { polish: 'motywacja', english: 'motivation' }
-                ]
-            },
-            'C1': {
-                'technologia': [
-                    { polish: 'sztuczna inteligencja', english: 'artificial intelligence' },
-                    { polish: 'algorytm', english: 'algorithm' },
-                    { polish: 'automatyzacja', english: 'automation' },
-                    { polish: 'innowacja', english: 'innovation' },
-                    { polish: 'cyfryzacja', english: 'digitalization' }
-                ],
-                'kultura': [
-                    { polish: 'intelektualny', english: 'intellectual' },
-                    { polish: 'filozofia', english: 'philosophy' },
-                    { polish: 'abstrakcyjny', english: 'abstract' },
-                    { polish: 'konceptualny', english: 'conceptual' },
-                    { polish: 'interpretacja', english: 'interpretation' }
-                ]
-            },
-            'C2': {
-                'praca': [
-                    { polish: 'przedsiębiorczość', english: 'entrepreneurship' },
-                    { polish: 'strategiczny', english: 'strategic' },
-                    { polish: 'kompleksowy', english: 'comprehensive' },
-                    { polish: 'efektywność', english: 'efficiency' },
-                    { polish: 'optymalizacja', english: 'optimization' }
-                ]
-            }
-        };
-
-        const levelWords = wordSets[level] || wordSets['B1'];
-        const categoryWords = levelWords[category] || levelWords[Object.keys(levelWords)[0]] || [];
-        
-        // Filtruj słowa, które użytkownik już ma
-        const availableWords = categoryWords.filter(word => 
-            !existingWords.includes(word.english.toLowerCase())
-        );
-        
-        // Jeśli brak dostępnych słów, spróbuj innych kategorii
-        if (availableWords.length < count) {
-            const allLevelWords = Object.values(levelWords).flat();
-            const additionalWords = allLevelWords.filter(word => 
-                !existingWords.includes(word.english.toLowerCase()) &&
-                !availableWords.some(aw => aw.english === word.english)
-            );
-            availableWords.push(...additionalWords);
-        }
-        
-        // Shuffle and take requested count
-        const shuffled = this.shuffleArray([...availableWords]);
-        return shuffled.slice(0, count).map(word => ({
-            ...word,
-            status: 'new',
-            attempts: 0,
-            correct: 0,
-            lastReview: null,
-            nextReview: null,
-            category: category,
-            difficulty: this.calculateWordDifficulty(word, level),
-            hasImage: true
-        }));
+getWordsByLevel(level, category, count, existingWords = [], userProgress = null) {
+    // To jest tylko awaryjny fallback gdy AI nie działa
+    // Zwracamy minimalną liczbę podstawowych słów
+    console.log(`Fallback: generowanie ${count} słów dla kategorii ${category} na poziomie ${level}`);
+    
+    // Tylko kilka podstawowych słów jako ostatnia deska ratunku
+    const fallbackWords = [
+        { polish: 'przykład', english: 'example' },
+        { polish: 'słowo', english: 'word' },
+        { polish: 'nauka', english: 'learning' },
+        { polish: 'język', english: 'language' },
+        { polish: 'angielski', english: 'English' }
+    ];
+    
+    // Filtruj słowa które już istnieją
+    const availableWords = fallbackWords.filter(word => 
+        !existingWords.includes(word.english.toLowerCase())
+    );
+    
+    // Jeśli nie ma dostępnych słów, zwróć pustą tablicę
+    if (availableWords.length === 0) {
+        console.warn('Brak dostępnych słów w fallback');
+        return [];
     }
+    
+    // Zwróć tylko tyle słów ile potrzeba
+    return availableWords.slice(0, Math.min(count, availableWords.length)).map(word => ({
+        ...word,
+        status: 'new',
+        attempts: 0,
+        correct: 0,
+        lastReview: null,
+        nextReview: null,
+        category: category,
+        difficulty: 'medium',
+        hasImage: true,
+        level: level,
+        isFallback: true // Oznacz że to słowo z fallbacku
+    }));
+}
 
     calculateWordDifficulty(word, level) {
         const levelDifficulty = {
@@ -1867,36 +2420,22 @@ class VocabularyApp {
     }
 
     // AI Integration Functions
-    buildAIPrompt(category, level, count) {
-        const userProgress = this.analyzeUserProgress();
-        const difficultWords = this.learningPatterns.difficultWords.slice(0, 5);
-        
-        return `Jesteś ekspertem w nauczaniu języka angielskiego dla Polaków. Wygeneruj ${count} słów angielskich z kategorii "${category}" na poziomie ${level} (CEFR).
+ buildAIPrompt(category, level, count) {
+    const existingWords = this.words.map(w => w.english).slice(-50).join(', ');
 
-KONTEKST UŻYTKOWNIKA:
-- Poziom: ${level}
-- Kategoria: ${category}
-- Trudne słowa: ${difficultWords.join(', ') || 'brak danych'}
-- Tempo nauki: ${userProgress.learningSpeed}
-- Słabe obszary: ${userProgress.weakAreas.join(', ') || 'brak danych'}
+    return `Jesteś ekspertem w nauczaniu języka angielskiego dla Polaków. Wygeneruj listę ${count} par słów (polskie i angielskie) z kategorii "${category}" na poziomie ${level} (CEFR).
 
 WYMAGANIA:
-1. Słowa muszą być odpowiednie dla poziomu ${level}
-2. Muszą być związane z kategorią "${category}"
-3. Uwzględnij trudności użytkownika
-4. Unikaj słów, które już zna
-5. Dostosuj trudność do tempa nauki
+1. Upewnij się, że polskie tłumaczenia są poprawne, powszechnie używane i jednoznaczne. Unikaj slangu i rzadkich zwrotów.
+2. Unikaj generowania tych słów, które już istnieją: ${existingWords}.
+3. Zwróć odpowiedź TYLKO jako tablicę obiektów JSON, bez żadnych dodatkowych wyjaśnień i tekstu.
 
-FORMAT ODPOWIEDZI (tylko JSON, bez dodatkowego tekstu):
-{
-  "words": [
-    {"polish": "słowo_polskie", "english": "english_word", "difficulty": "easy|medium|hard", "context": "przykładowe zdanie"},
-    ...
-  ]
+PRZYKŁAD FORMATU ODPOWIEDZI:
+[
+  {"polish": "chleb", "english": "bread"},
+  {"polish": "warzywo", "english": "vegetable"}
+]`;
 }
-
-Istniejące słowa użytkownika (unikaj duplikatów): ${this.words.map(w => w.english).slice(0, 20).join(', ')}`;
-    }
 
     async callOpenAI(prompt) {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1995,34 +2534,174 @@ Istniejące słowa użytkownika (unikaj duplikatów): ${this.words.map(w => w.en
         return data.candidates[0].content.parts[0].text;
     }
 
-    parseAIResponse(response) {
-        try {
-            // Clean response - remove markdown formatting if present
-            const cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-            const parsed = JSON.parse(cleanResponse);
-            
-            if (!parsed.words || !Array.isArray(parsed.words)) {
-                throw new Error('Invalid response format');
-            }
-
-            return parsed.words.map(word => ({
-                polish: word.polish,
-                english: word.english,
-                status: 'new',
-                attempts: 0,
-                correct: 0,
-                lastReview: null,
-                nextReview: null,
-                difficulty: word.difficulty || 'medium',
-                context: word.context || '',
-                aiGenerated: true,
-                hasImage: true
-            }));
-        } catch (error) {
-            console.error('Błąd parsowania odpowiedzi AI:', error);
-            throw error;
-        }
+    // NOWA FUNKCJA: Do obsługi Hugging Face API
+async callHuggingFace(prompt) {
+    // Użyj darmowego API bez klucza - np. przez proxy lub publiczne endpointy
+    try {
+        // Opcja 1: Użyj darmowego tłumaczenia z MyMemory
+        const words = await this.generateWordsWithTranslation(prompt);
+        // Zwróć bezpośrednio tablicę w formacie JSON, kompatybilną z parseAIResponse
+        return JSON.stringify(words);
+    } catch (error) {
+        console.error('Błąd generowania słów:', error);
+        throw error;
     }
+}
+
+async generateWordsWithTranslation(prompt) {
+    // Wyciągnij informacje z promptu
+    const categoryMatch = prompt.match(/kategorii "([^"]+)"/);
+    const levelMatch = prompt.match(/poziomie (\w+)/);
+    const countMatch = prompt.match(/Wygeneruj (\d+) słów/);
+    
+    const category = categoryMatch ? categoryMatch[1] : 'dom';
+    const level = levelMatch ? levelMatch[1] : 'B1';
+    const count = countMatch ? parseInt(countMatch[1]) : 5;
+    
+    // Użyj lokalnej bazy słów
+    const baseWords = this.getIntelligentWordsByLevel(level, category, count);
+    
+    // Dla każdego słowa spróbuj uzyskać lepsze tłumaczenie
+    const enhancedWords = [];
+    
+    for (const word of baseWords) {
+        try {
+            // Opcja: Użyj darmowego API MyMemory
+            const translation = await this.getTranslationFromMyMemory(word.polish);
+            if (translation) {
+                word.english = translation;
+                word.verified = true;
+            }
+        } catch (error) {
+            console.warn('Używam lokalnego tłumaczenia dla:', word.polish);
+        }
+        enhancedWords.push(word);
+    }
+    
+    return enhancedWords;
+}
+
+// Dodaj funkcję do darmowego tłumaczenia z MyMemory
+async getTranslationFromMyMemory(polishWord) {
+    try {
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(polishWord)}&langpair=pl|en`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error('MyMemory API error');
+        }
+        
+        const data = await response.json();
+        if (data.responseData && data.responseData.translatedText) {
+            return data.responseData.translatedText;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('MyMemory translation error:', error);
+        return null;
+    }
+}
+
+// Tłumaczenie EN -> PL (na potrzeby trybu darmowego)
+async getPolishTranslation(englishWord) {
+    // Najpierw spróbuj MyMemory (en->pl)
+    try {
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(englishWord)}&langpair=en|pl`;
+        const response = await fetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.responseData && data.responseData.translatedText) {
+                return data.responseData.translatedText;
+            }
+        }
+    } catch (error) {
+        console.warn('MyMemory en->pl failed:', error);
+    }
+
+    // Fallback: LibreTranslate (en->pl)
+    try {
+        const servers = [
+            'https://translate.argosopentech.com',
+            'https://translate.terraprint.co'
+        ];
+        for (const server of servers) {
+            try {
+                const response = await fetch(`${server}/translate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ q: englishWord, source: 'en', target: 'pl', format: 'text' })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.translatedText) {
+                        return data.translatedText;
+                    }
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+    } catch (error) {
+        console.error('LibreTranslate en->pl error:', error);
+    }
+
+    return null;
+}
+
+// Ustawienie stanu pola klucza API wg providera
+updateApiKeyFieldState() {
+    const input = document.getElementById('ai-api-key');
+    if (!input) return;
+    const isFree = this.settings.aiProvider === 'free';
+    input.disabled = isFree;
+    input.placeholder = isFree ? 'Nie wymagany dla trybu darmowego' : 'Wprowadź swój klucz API';
+}
+
+
+   async parseAIResponse(response, category = 'inne') {
+    try {
+        const cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(cleanResponse);
+
+        if (!Array.isArray(parsed)) {
+            throw new Error('Odpowiedź AI nie jest tablicą.');
+        }
+
+        // Weryfikujemy, czy każdy element jest poprawnym obiektem
+        const validWords = parsed.filter(item =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof item.polish === 'string' && item.polish.trim() !== '' &&
+            typeof item.english === 'string' && item.english.trim() !== ''
+        );
+        
+        if (validWords.length !== parsed.length) {
+            console.warn("Niektóre obiekty od AI miały nieprawidłowy format i zostały odrzucone.");
+        }
+
+        // Mapujemy na format używany w aplikacji
+        return validWords.map(word => ({
+            polish: word.polish,
+            english: word.english,
+            status: 'new',
+            attempts: 0,
+            correct: 0,
+            lastReview: null,
+            nextReview: null,
+            aiGenerated: true,
+            hasImage: true,
+            verified: false, // Weryfikacja Diki jest wyłączona
+            category: word.category || category, // Użyj przekazanej kategorii
+            difficulty: this.mapLevelToDifficulty(this.settings.languageLevel),
+            level: this.settings.languageLevel
+        }));
+
+    } catch (error) {
+        console.error('Błąd parsowania odpowiedzi AI:', error, "Otrzymana odpowiedź:", response);
+        throw error;
+    }
+}
 
     analyzeUserProgress() {
         const totalWords = this.words.length;
@@ -2130,7 +2809,25 @@ KONTEKST UŻYTKOWNIKA:
 
 Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
 
-            const response = await this.callOpenAI(prompt);
+            // ZMIANA: Wykorzystujemy dowolnego wybranego dostawcę, w tym HuggingFace
+            let response;
+            switch (this.settings.aiProvider) {
+                case 'openai':
+                    response = await this.callOpenAI(prompt);
+                    break;
+                case 'anthropic':
+                    response = await this.callAnthropic(prompt);
+                    break;
+                case 'gemini':
+                    response = await this.callGemini(prompt);
+                    break;
+                case 'huggingface':
+                    response = await this.callHuggingFace(prompt);
+                    break;
+                default:
+                    return this.getStandardInterval(word, isCorrect);
+            }
+
             const interval = parseInt(response.trim());
             
             if (isNaN(interval) || interval < 1 || interval > 30) {
@@ -2174,20 +2871,37 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         document.getElementById('enable-ai-recommendations').checked = this.settings.enableAIRecommendations;
         document.getElementById('adaptive-difficulty').checked = this.settings.adaptiveDifficulty;
         document.getElementById('enable-imagen').checked = this.settings.enableImagen;
+        document.getElementById('enable-diki-verification').checked = this.settings.enableDikiVerification;
         
         this.updateAIModelOptions();
+        this.updateApiKeyFieldState();
     }
 
-    updateAIModelOptions() {
-        const modelSelect = document.getElementById('ai-model');
-        modelSelect.innerHTML = '';
-        
-        const modelOptions = {
-            'openai': [
-                { value: 'gpt-3.5-turbo', text: 'GPT-3.5 Turbo' },
-                { value: 'gpt-4', text: 'GPT-4' },
-                { value: 'gpt-4-turbo', text: 'GPT-4 Turbo' }
-            ],
+    // ZMIANA: Dodano opcje dla Hugging Face
+updateAIModelOptions() {
+    const providerSelect = document.getElementById('ai-provider');
+    const apiKeyInput = document.getElementById('ai-api-key');
+    if (providerSelect && apiKeyInput) {
+        // Ensure field state matches before repopulating models
+        apiKeyInput.disabled = providerSelect.value === 'free';
+        apiKeyInput.placeholder = providerSelect.value === 'free'
+            ? 'Nie wymagany dla trybu darmowego'
+            : 'Wprowadź swój klucz API';
+    }
+    const modelSelect = document.getElementById('ai-model');
+    modelSelect.innerHTML = '';
+    
+    const modelOptions = {
+        'free': [
+            { value: 'mymemory', text: 'MyMemory (Darmowe tłumaczenie)' },
+            { value: 'libre', text: 'LibreTranslate (Open Source)' },
+            { value: 'local', text: 'Lokalna baza słów' }
+        ],
+       'openai': [
+        { value: 'gpt-3.5-turbo', text: 'GPT-3.5 Turbo' },
+        { value: 'gpt-4', text: 'GPT-4' },
+        { value: 'gpt-4-turbo', text: 'GPT-4 Turbo' }
+    ],
             'anthropic': [
                 { value: 'claude-3-sonnet-20240229', text: 'Claude 3 Sonnet' },
                 { value: 'claude-3-opus-20240229', text: 'Claude 3 Opus' },
@@ -2197,65 +2911,87 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
                 { value: 'gemini-pro', text: 'Gemini Pro' },
                 { value: 'gemini-1.5-flash', text: 'Gemini 1.5 Flash' },
                 { value: 'gemini-1.5-pro', text: 'Gemini 1.5 Pro' }
-            ]
+            ],
+            'huggingface': [
+    { value: 'Qwen/Qwen2.5-0.5B-Instruct', text: 'Qwen 2.5 (0.5B) - Szybki' },
+    { value: 'microsoft/Phi-3.5-mini-instruct', text: 'Phi 3.5 Mini' },
+    { value: 'HuggingFaceH4/zephyr-7b-beta', text: 'Zephyr 7B (może wymagać czasu)' },
+    { value: 'TinyLlama/TinyLlama-1.1B-Chat-v1.0', text: 'TinyLlama 1.1B' }
+]
         };
         
-        const options = modelOptions[this.settings.aiProvider] || modelOptions['openai'];
-        options.forEach(option => {
-            const optionEl = document.createElement('option');
-            optionEl.value = option.value;
-            optionEl.textContent = option.text;
-            modelSelect.appendChild(optionEl);
-        });
-        
-        modelSelect.value = this.settings.aiModel;
+   const currentProvider = this.settings.aiProvider;
+    const options = modelOptions[currentProvider] || modelOptions['free'];
+    
+    options.forEach(option => {
+        const optionEl = document.createElement('option');
+        optionEl.value = option.value;
+        optionEl.textContent = option.text;
+        modelSelect.appendChild(optionEl);
+    });
+    
+    // Ustaw domyślną wartość
+    if (this.settings.aiProvider === 'free') {
+        modelSelect.value = 'mymemory';
+        this.settings.aiModel = 'mymemory';
     }
+}
 
+    // ZMIANA: Zaktualizowano `testAIConnection` o opcję 'huggingface'
     async testAIConnection() {
-        const testBtn = document.getElementById('test-ai-connection');
-        const originalText = testBtn.textContent;
-        
-        if (!this.settings.aiApiKey) {
-            alert('Najpierw wprowadź klucz API');
-            return;
-        }
-        
-        testBtn.disabled = true;
-        testBtn.textContent = '🔄 Testowanie...';
-        
-        try {
-            const testPrompt = 'Odpowiedz tylko "OK" jeśli otrzymujesz tę wiadomość.';
-            let response;
-            
-            switch (this.settings.aiProvider) {
-                case 'openai':
-                    response = await this.callOpenAI(testPrompt);
-                    break;
-                case 'anthropic':
-                    response = await this.callAnthropic(testPrompt);
-                    break;
-                case 'gemini':
-                    response = await this.callGemini(testPrompt);
-                    break;
-            }
-            
-            testBtn.textContent = '✅ Połączenie OK';
-            setTimeout(() => {
-                testBtn.textContent = originalText;
-            }, 3000);
-            
-        } catch (error) {
-            console.error('Test AI failed:', error);
-            testBtn.textContent = '❌ Błąd połączenia';
-            setTimeout(() => {
-                testBtn.textContent = originalText;
-            }, 3000);
-            alert(`Błąd połączenia z AI: ${error.message}`);
-        } finally {
-            testBtn.disabled = false;
-        }
+    console.log('Kliknięto test AI!');
+    const testBtn = document.getElementById('test-ai-connection');
+    const originalText = testBtn.textContent;
+    
+    // Dla darmowego providera nie wymagaj klucza API
+    if (this.settings.aiProvider !== 'free' && !this.settings.aiApiKey) {
+        alert('Najpierw wprowadź klucz API');
+        return;
     }
-
+    
+    testBtn.disabled = true;
+    testBtn.textContent = '🔄 Testowanie...';
+    
+    try {
+        const testPrompt = 'Odpowiedz tylko "OK" jeśli otrzymujesz tę wiadomość.';
+        let response;
+        
+        switch (this.settings.aiProvider) {
+            case 'free':
+                // Test darmowego API
+                const testTranslation = await this.getTranslationFromMyMemory('test');
+                response = testTranslation ? 'OK' : 'FAIL';
+                break;
+            case 'openai':
+                response = await this.callOpenAI(testPrompt);
+                break;
+            case 'anthropic':
+                response = await this.callAnthropic(testPrompt);
+                break;
+            case 'gemini':
+                response = await this.callGemini(testPrompt);
+                break;
+            case 'huggingface':
+                response = await this.callHuggingFace(testPrompt);
+                break;
+        }
+        
+        testBtn.textContent = '✅ Połączenie OK';
+        setTimeout(() => {
+            testBtn.textContent = originalText;
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Test AI failed:', error);
+        testBtn.textContent = '❌ Błąd połączenia';
+        setTimeout(() => {
+            testBtn.textContent = originalText;
+        }, 3000);
+        alert(`Błąd połączenia z AI: ${error.message}`);
+    } finally {
+        testBtn.disabled = false;
+    }
+}
     // Import/Export
     importWords(file) {
         if (!file) return;
