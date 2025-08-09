@@ -1,11 +1,66 @@
 // Polish-English Vocabulary Learning App
 class VocabularyApp {
+    // Renderuje przykłady dla obecnego słowa albo linki wyszukiwania
+    renderExamplesForCurrentWord() {
+        const examplesContainer = document.getElementById('examples-container');
+        if (!examplesContainer) return;
+
+        const word = this.currentStudySet[this.currentWordIndex];
+        if (!word) return;
+
+        // Jeśli mamy examples z AI (JSON), pokaż je
+        if (Array.isArray(word.examples) && word.examples.length > 0) {
+            examplesContainer.innerHTML = '';
+            word.examples.slice(0, 2).forEach(ex => {
+                const item = document.createElement('div');
+                item.className = 'example-item';
+                const link = ex.url ? `<a href="${ex.url}" target="_blank" rel="noopener">${ex.source || ex.url}</a>` : '';
+                const quote = ex.text || ex.quote || '';
+                item.innerHTML = `${quote} ${link ? '— ' + link : ''}`;
+                examplesContainer.appendChild(item);
+            });
+            return;
+        }
+
+        // W przeciwnym razie pokaż szybkie linki do wyszukiwarki przykładów
+        const q = encodeURIComponent(word.english || '');
+        const links = [
+            { name: 'Tatoeba', url: `https://tatoeba.org/en/sentences/search?from=eng&to=pol&query=${q}` },
+            { name: 'Linguee', url: `https://www.linguee.com/english-polish/search?source=english&query=${q}` },
+            { name: 'Reverso', url: `https://context.reverso.net/translation/english-polish/${q}` },
+            { name: 'YouGlish', url: `https://youglish.com/pronounce/${q}/english` },
+            { name: 'Wiktionary', url: `https://en.wiktionary.org/wiki/${q}` }
+        ];
+        examplesContainer.innerHTML = links.map(l => 
+            `<div class="example-item">🔎 <a href="${l.url}" target="_blank" rel="noopener">${l.name}</a></div>`
+        ).join('');
+    }
+
+    toggleExamples() {
+        this.examplesExpanded = !this.examplesExpanded;
+        const examplesContainer = document.getElementById('examples-container');
+        const toggleBtn = document.getElementById('toggle-examples');
+        if (!examplesContainer || !toggleBtn) return;
+        if (this.examplesExpanded) {
+            examplesContainer.classList.add('active');
+            examplesContainer.setAttribute('aria-hidden', 'false');
+            toggleBtn.textContent = '📖 Ukryj przykłady';
+            // Załaduj zawartość
+            this.renderExamplesForCurrentWord();
+        } else {
+            toggleBtn.textContent = '📖 Pokaż przykłady';
+            examplesContainer.classList.remove('active');
+            examplesContainer.setAttribute('aria-hidden', 'true');
+            examplesContainer.innerHTML = '';
+        }
+    }
     constructor() {
         this.words = [];
         this.currentStudySet = [];
         this.currentWordIndex = 0;
         this.currentMode = '';
         this.selectedMatches = {};
+        this.examplesExpanded = false;
         this.stats = {
             totalWords: 0,
             learnedWords: 0,
@@ -255,6 +310,12 @@ removeDuplicates() {
         document.querySelector('.flip-btn').addEventListener('click', () => {
             this.flipCard();
         });
+
+        // Przykłady (fiszki)
+        const toggleBtn = document.getElementById('toggle-examples');
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', () => this.toggleExamples());
+        }
 
         document.querySelector('.btn-wrong').addEventListener('click', () => {
             this.recordAnswer(false);
@@ -542,6 +603,17 @@ removeDuplicates() {
 
     // Flashcards Mode
     loadFlashcard(word) {
+        // Zresetuj stan przycisku i panelu przykładów
+        const toggleBtn = document.getElementById('toggle-examples');
+        const examplesContainer = document.getElementById('examples-container');
+        if (toggleBtn && examplesContainer) {
+            this.examplesExpanded = false;
+            toggleBtn.textContent = '📖 Pokaż przykłady';
+            examplesContainer.classList.remove('active');
+            examplesContainer.setAttribute('aria-hidden', 'true');
+            examplesContainer.innerHTML = '';
+        }
+
         const flashcard = document.getElementById('flashcard');
         const frontWord = document.getElementById('front-word');
         const backWord = document.getElementById('back-word');
@@ -2423,18 +2495,35 @@ getWordsByLevel(level, category, count, existingWords = [], userProgress = null)
  buildAIPrompt(category, level, count) {
     const existingWords = this.words.map(w => w.english).slice(-50).join(', ');
 
-    return `Jesteś ekspertem w nauczaniu języka angielskiego dla Polaków. Wygeneruj listę ${count} par słów (polskie i angielskie) z kategorii "${category}" na poziomie ${level} (CEFR).
+    return `Jesteś leksykografem. Zwróć TYLKO JSON (tablica obiektów), bez dodatkowych komentarzy.
 
-WYMAGANIA:
-1. Upewnij się, że polskie tłumaczenia są poprawne, powszechnie używane i jednoznaczne. Unikaj slangu i rzadkich zwrotów.
-2. Unikaj generowania tych słów, które już istnieją: ${existingWords}.
-3. Zwróć odpowiedź TYLKO jako tablicę obiektów JSON, bez żadnych dodatkowych wyjaśnień i tekstu.
+ZADANIE:
+- Wygeneruj ${count} uniwersalnych haseł PL→EN, poziom ${level} (CEFR). Jeśli nie podano tematu, dobierz słowa częste i użyteczne dla poziomu.
+- Unikaj słów już użytych: ${existingWords}.
 
-PRZYKŁAD FORMATU ODPOWIEDZI:
+FORMAT (dokładnie):
 [
-  {"polish": "chleb", "english": "bread"},
-  {"polish": "warzywo", "english": "vegetable"}
-]`;
+  {
+    "polish": "…",
+    "english": "…",
+    "verified": true|false,
+    "sources": [{ "name": "…", "url": "…" }],
+    "examples": [{ "text": "…dokładny cytat…", "source": "…", "url": "…", "exactQuote": true }],
+    "notes": "krótka uwaga (np. o rejestrze lub rozróżnieniu znaczeń)"
+  }
+]
+
+ZASADY PRZEGLĄDANIA (jeśli masz dostęp do sieci):
+- verified=true TYLKO jeśli zweryfikujesz znaczenie w ≥2 wiarygodnych źródłach (Cambridge/Merriam‑Webster/Collins/Oxford/Wiktionary/PWN/Diki). Nie używaj linków wymyślonych.
+- examples: 1–2 autentyczne zdania z Internetu; wklej dokładny cytat (exactQuote=true) i link do źródła.
+- Jeśli nie możesz zweryfikować online: ustaw verified=false, sources=[], examples=[]. Nie wymyślaj cytatów ani linków.
+
+GUARDY PRZECIW BŁĘDOM:
+1) Nie zwracaj english == polish (po znormalizowaniu) chyba że to oczywisty internacjonalizm (np. "hotel", "internet", "radio"). Jeśli masz tylko identyczną formę – ustaw verified=false i dodaj wyjaśnienie w notes lub wybierz naturalny odpowiednik.
+2) "parapet" (PL, okienny) → "windowsill" (preferowane) lub "window ledge". Uwaga: ang. "parapet" to niska ścianka ochronna (na dachu/mostku/balkonie).
+3) "skosy" (we wnętrzach/poddasze) → preferuj "sloped ceilings" lub "pitched ceilings". Gdy chodzi o ściany: "slanted walls/sloped walls" zależnie od kontekstu.
+4) Przed zwrotem JSON wykonaj autokontrolę: brak nieuzasadnionych form english==polish; jeśli browsing działa – czy verified=true ma ≥2 sources i 1–2 examples z linkami.
+`;
 }
 
     async callOpenAI(prompt) {
@@ -2691,7 +2780,16 @@ updateApiKeyFieldState() {
             nextReview: null,
             aiGenerated: true,
             hasImage: true,
-            verified: false, // Weryfikacja Diki jest wyłączona
+            verified: !!word.verified,
+            sources: Array.isArray(word.sources) ? word.sources : [],
+            examples: Array.isArray(word.examples)
+                ? word.examples.map(ex => ({
+                    text: ex.text || ex.quote || '',
+                    source: ex.source || '',
+                    url: ex.url || '',
+                    exactQuote: !!ex.exactQuote
+                }))
+                : [],
             category: word.category || category, // Użyj przekazanej kategorii
             difficulty: this.mapLevelToDifficulty(this.settings.languageLevel),
             level: this.settings.languageLevel

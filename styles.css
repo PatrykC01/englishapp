@@ -851,6 +851,14 @@ body {
     color: #856404;
 }
 
+.examples-wrapper { margin-top: 12px; }
+.examples-toggle { font-size: 0.9rem; padding: 6px 10px; }
+.examples-container { display: none; margin-top: 8px; background: #f6f7fb; border: 1px solid #e3e7f7; border-radius: 8px; padding: 10px; color: #2b2d42; }
+.examples-container.active { display: block; }
+.examples-container .example-item { margin-bottom: 8px; }
+.examples-container .example-item a { color: #3b5bdb; text-decoration: none; }
+.examples-container .example-item a:hover { text-decoration: underline; }
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .navbar {
