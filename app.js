@@ -61,6 +61,8 @@ class VocabularyApp {
         this.currentMode = '';
         this.selectedMatches = {};
         this.examplesExpanded = false;
+        this.userInteracted = false;
+        this._forceFirstListeningSpeak = false;
         this.stats = {
             totalWords: 0,
             learnedWords: 0,
@@ -161,7 +163,10 @@ removeDuplicates() {
             this.unlockTTS();
         };
         ['pointerdown', 'touchstart', 'click'].forEach(evt => {
-            document.addEventListener(evt, unlock, { once: true, passive: true });
+            document.addEventListener(evt, (e) => {
+                this.userInteracted = true;
+                unlock();
+            }, { once: true, passive: true });
         });
     }
 
@@ -303,6 +308,10 @@ removeDuplicates() {
         // Study mode selection
         document.querySelectorAll('.mode-card').forEach(card => {
             card.addEventListener('click', (e) => {
+                this.userInteracted = true;
+                if (e.currentTarget.dataset.mode === 'listening') {
+                    this._forceFirstListeningSpeak = true;
+                }
                 const mode = e.currentTarget.dataset.mode;
                 this.startStudyMode(mode);
             });
@@ -310,11 +319,13 @@ removeDuplicates() {
 
         // Back button
         document.getElementById('back-btn').addEventListener('click', () => {
+            this.userInteracted = true;
             this.showView('dashboard');
         });
 
         // Flashcards
         document.querySelector('.flip-btn').addEventListener('click', () => {
+            this.userInteracted = true;
             this.flipCard();
         });
 
@@ -350,6 +361,7 @@ removeDuplicates() {
 
         // Typing mode
         document.getElementById('check-answer').addEventListener('click', () => {
+            this.userInteracted = true;
             this.checkTypingAnswer();
         });
 
@@ -361,20 +373,24 @@ removeDuplicates() {
 
         // Listening mode
         document.getElementById('play-audio').addEventListener('click', () => {
+            this.userInteracted = true;
             this.playAudio();
         });
 
         document.getElementById('check-listening').addEventListener('click', () => {
+            this.userInteracted = true;
             this.checkListeningAnswer();
         });
 
         document.getElementById('listening-input').addEventListener('keypress', (e) => {
+            this.userInteracted = true;
             if (e.key === 'Enter') {
                 this.checkListeningAnswer();
             }
         });
 
         document.getElementById('listening-input').addEventListener('keydown', (e) => {
+            this.userInteracted = true;
             if (e.key === ' ' && e.target.value === '') {
                 e.preventDefault(); // Zapobiega dodaniu spacji do pola
                 this.playAudio();
@@ -767,6 +783,19 @@ removeDuplicates() {
         const audioBtn = document.getElementById('play-audio');
         if (this.isMobileDevice()) {
             audioBtn.textContent = '🔊 Dotknij aby usłyszeć';
+            // Jeśli użytkownik wykonał już jakąkolwiek interakcję, spróbuj automatycznie odtworzyć słowo
+            if (this.userInteracted) {
+                setTimeout(() => {
+                    this.speakWord(word.english);
+                }, 300);
+            }
+            // Wymuś auto-odczyt dla pierwszej karty po wejściu do trybu słuchania
+            if (this._forceFirstListeningSpeak) {
+                this._forceFirstListeningSpeak = false;
+                setTimeout(() => {
+                    this.speakWord(word.english);
+                }, 250);
+            }
             audioBtn.style.backgroundColor = '#4CAF50';
             audioBtn.style.animation = 'pulse 2s infinite';
         } else {
