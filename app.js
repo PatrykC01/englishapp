@@ -795,7 +795,7 @@ removeDuplicates() {
         audioBtn.disabled = true;
         
         // Dla iOS - wymuszenie interakcji
-        if (this.isIOSDevice()) {
+        if (this.isIOSDevice() || this.isArcAndroid()) {
             // Najpierw "obudź" syntezę mowy cichym dźwiękiem
             const silentUtterance = new SpeechSynthesisUtterance(' ');
             silentUtterance.volume = 0.01;
@@ -828,6 +828,7 @@ removeDuplicates() {
        }
         if (!('speechSynthesis' in window)) {
             console.warn('Brak wsparcia dla syntezy mowy');
+            this.ttsFallbackPlay(text);
             return;
         }
 
@@ -876,12 +877,18 @@ removeDuplicates() {
             }
             
             speechSynthesis.speak(utterance);
-            // Retry once on mobile if it didn't start
+            // Retry once on mobile if it didn't start; then fallback
             if (this.isMobileDevice()) {
                 setTimeout(() => {
                     if (!started) {
+                        let retried = false;
                         try { speechSynthesis.cancel(); } catch (e) {}
-                        try { speechSynthesis.speak(utterance); } catch (e) {}
+                        try { speechSynthesis.speak(utterance); retried = true; } catch (e) {}
+                        setTimeout(() => {
+                            if (!started) {
+                                this.ttsFallbackPlay(text);
+                            }
+                        }, retried ? 250 : 0);
                     }
                 }, 250);
             }
@@ -906,6 +913,12 @@ removeDuplicates() {
 
     isMobileDevice() {
         return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+
+    // Detekcja Arc na Androidzie (przeglądarka Arc by The Browser Company)
+    isArcAndroid() {
+        const ua = navigator.userAgent.toLowerCase();
+        return ua.includes('arc') && ua.includes('android');
     }
 
     // Dźwięki dla trybu match
@@ -1258,6 +1271,20 @@ removeDuplicates() {
             oscillator.stop(audioContext.currentTime + duration);
         } catch (error) {
             console.warn('Nie można odtworzyć dźwięku:', error);
+        }
+    }
+
+    // Prosty fallback TTS: Streamelements (bez klucza). Uwaga: publiczne API, brak gwarancji SLA.
+    async ttsFallbackPlay(text) {
+        try {
+            const voice = 'Brian'; // angielski męski, dość naturalny
+            const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`;
+            const audio = new Audio();
+            audio.src = url;
+            audio.volume = 1.0;
+            await audio.play();
+        } catch (e) {
+            console.warn('Fallback TTS failed', e);
         }
     }
 
