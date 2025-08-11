@@ -122,6 +122,13 @@ class VocabularyApp {
         
         // Inicjalizacja syntezy mowy dla mobile
         this.initializeSpeechSynthesis();
+        
+        // Upewnij się, że TTS wznawia się po powrocie do karty (mobilne przeglądarki potrafią pauzować)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && 'speechSynthesis' in window) {
+                try { speechSynthesis.resume(); } catch (e) {}
+            }
+        });
     }
 // Dodaj tę metodę do klasy VocabularyApp
 removeDuplicates() {
@@ -194,7 +201,7 @@ removeDuplicates() {
            try { speechSynthesis.cancel(); } catch (e) {}
            // Speak a very short silent utterance to unlock audio on mobile
            const u = new SpeechSynthesisUtterance(' ');
-           u.volume = 0;
+           u.volume = 0.01;
            u.rate = 1;
            u.pitch = 1;
            u.lang = 'en-US';
@@ -791,7 +798,7 @@ removeDuplicates() {
         if (this.isIOSDevice()) {
             // Najpierw "obudź" syntezę mowy cichym dźwiękiem
             const silentUtterance = new SpeechSynthesisUtterance(' ');
-            silentUtterance.volume = 0.1;
+            silentUtterance.volume = 0.01;
             speechSynthesis.speak(silentUtterance);
             
             // Poczekaj chwilę przed właściwym słowem
@@ -831,6 +838,7 @@ removeDuplicates() {
         
         // Funkcja do odtwarzania
         const speak = () => {
+            let started = false;
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'en-US';
             utterance.rate = this.isMobileDevice() ? 0.7 : 0.8;
@@ -849,22 +857,34 @@ removeDuplicates() {
                 }
             };
             
-            utterance.onend = () => {
+            utterance.onstart = () => { started = true; };
+           utterance.onend = () => {
                 console.log('Speech finished');
             };
             
             // Spróbuj znaleźć odpowiedni głos
-            const voices = speechSynthesis.getVoices();
-            const englishVoice = voices.find(voice => 
-                voice.lang.startsWith('en') && 
-                (this.isMobileDevice() ? voice.localService : true)
-            );
-            
-            if (englishVoice) {
-                utterance.voice = englishVoice;
+            const voices = speechSynthesis.getVoices() || [];
+            let selectedVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en'));
+            if (!selectedVoice && utterance.lang) {
+                selectedVoice = voices.find(v => v.lang && v.lang.toLowerCase() === utterance.lang.toLowerCase());
+            }
+            if (!selectedVoice && voices.length) {
+                selectedVoice = voices[0];
+            }
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
             }
             
             speechSynthesis.speak(utterance);
+            // Retry once on mobile if it didn't start
+            if (this.isMobileDevice()) {
+                setTimeout(() => {
+                    if (!started) {
+                        try { speechSynthesis.cancel(); } catch (e) {}
+                        try { speechSynthesis.speak(utterance); } catch (e) {}
+                    }
+                }, 250);
+            }
         };
         
         // Sprawdź czy głosy są załadowane
