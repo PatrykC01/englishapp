@@ -783,18 +783,18 @@ removeDuplicates() {
         const audioBtn = document.getElementById('play-audio');
         if (this.isMobileDevice()) {
             audioBtn.textContent = '🔊 Dotknij aby usłyszeć';
-            // Jeśli użytkownik wykonał już jakąkolwiek interakcję, spróbuj automatycznie odtworzyć słowo
-            if (this.userInteracted) {
+            // Zaplanuj JEDNO automatyczne odtworzenie (unikaj podwójnego echa)
+            let shouldAutoSpeak = false;
+            if (this._forceFirstListeningSpeak) {
+                this._forceFirstListeningSpeak = false;
+                shouldAutoSpeak = true;
+            } else if (this.userInteracted) {
+                shouldAutoSpeak = true;
+            }
+            if (shouldAutoSpeak) {
                 setTimeout(() => {
                     this.speakWord(word.english);
                 }, 300);
-            }
-            // Wymuś auto-odczyt dla pierwszej karty po wejściu do trybu słuchania
-            if (this._forceFirstListeningSpeak) {
-                this._forceFirstListeningSpeak = false;
-                setTimeout(() => {
-                    this.speakWord(word.english);
-                }, 250);
             }
             audioBtn.style.backgroundColor = '#4CAF50';
             audioBtn.style.animation = 'pulse 2s infinite';
