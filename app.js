@@ -318,11 +318,21 @@ removeDuplicates() {
         }
 
         document.querySelector('.btn-wrong').addEventListener('click', () => {
-            this.recordAnswer(false);
+            if (this.currentMode === 'flashcards') {
+                this.animateFlashcardFadeOut();
+                setTimeout(() => this.recordAnswer(false), 300);
+            } else {
+                this.recordAnswer(false);
+            }
         });
 
         document.querySelector('.btn-correct').addEventListener('click', () => {
-            this.recordAnswer(true);
+            if (this.currentMode === 'flashcards') {
+                this.animateFlashcardFadeOut();
+                setTimeout(() => this.recordAnswer(true), 300);
+            } else {
+                this.recordAnswer(true);
+            }
         });
 
         // Gesture controls dla fiszek
@@ -619,6 +629,11 @@ removeDuplicates() {
         const backWord = document.getElementById('back-word');
         const wordImage = document.getElementById('word-image');
 
+        // Reset visual state in case previous card slid out
+        flashcard.style.transition = '';
+        flashcard.style.transform = 'translateX(0) rotate(0deg)';
+        flashcard.style.opacity = '1';
+        flashcard.style.borderColor = 'transparent';
         flashcard.classList.remove('flipped');
         frontWord.textContent = word.polish;
         backWord.textContent = word.english;
@@ -900,6 +915,11 @@ removeDuplicates() {
         let currentX = 0;
         let currentY = 0;
         let isDragging = false;
+        let lastTapTime = 0;
+        let lastTapX = 0;
+        let lastTapY = 0;
+        const DOUBLE_TAP_MAX_DELAY = 300; // ms
+        const DOUBLE_TAP_MAX_DISTANCE = 20; // px
 
         // Touch events
         flashcard.addEventListener('touchstart', (e) => {
@@ -941,6 +961,44 @@ removeDuplicates() {
             flashcard.style.transition = 'all 0.3s ease';
             flashcard.style.borderColor = 'transparent';
             
+            // Double-tap to flip (mobile)
+            const isInteractive = e.target.closest('button, input, a, select, textarea');
+            const isTap = Math.abs(currentX) < 10 && Math.abs(currentY) < 10;
+            if (!isInteractive && isTap) {
+                const now = Date.now();
+                const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+                const tapX = touch ? touch.clientX : startX;
+                const tapY = touch ? touch.clientY : startY;
+                const dxTap = Math.abs(tapX - lastTapX);
+                const dyTap = Math.abs(tapY - lastTapY);
+                if (lastTapTime && (now - lastTapTime) <= DOUBLE_TAP_MAX_DELAY && Math.max(dxTap, dyTap) <= DOUBLE_TAP_MAX_DISTANCE) {
+                    // Double tap detected: flip
+                    this.flipCard();
+                    lastTapTime = 0;
+                    lastTapX = 0;
+                    lastTapY = 0;
+
+                    // Reset transform/opacity and exit
+                    flashcard.style.transform = 'translateX(0) rotate(0deg)';
+                    flashcard.style.opacity = '1';
+                    currentX = 0;
+                    currentY = 0;
+                    return;
+                } else {
+                    // Store first tap
+                    lastTapTime = now;
+                    lastTapX = tapX;
+                    lastTapY = tapY;
+
+                    // Reset to default position and exit (single tap)
+                    flashcard.style.transform = 'translateX(0) rotate(0deg)';
+                    flashcard.style.opacity = '1';
+                    currentX = 0;
+                    currentY = 0;
+                    return;
+                }
+            }
+            
             // Sprawdź kierunek swipe
             if (Math.abs(currentX) > 100) {
                 if (currentX > 0) {
@@ -951,7 +1009,14 @@ removeDuplicates() {
                     this.handleSwipeLeft();
                 }
             } else {
-                // Powrót do pozycji
+                // Powrót do pozycji (lekki fade-in jeśli poruszono)
+                if (Math.abs(currentX) > 10) {
+                    flashcard.style.transition = 'opacity 0.2s ease, transform 0.3s ease';
+                    flashcard.style.opacity = '0.9';
+                    setTimeout(() => {
+                        flashcard.style.opacity = '1';
+                    }, 50);
+                }
                 flashcard.style.transform = 'translateX(0) rotate(0deg)';
                 flashcard.style.opacity = '1';
             }
@@ -991,6 +1056,15 @@ removeDuplicates() {
             }
         });
 
+        // Double-click to flip (desktop)
+        flashcard.addEventListener('dblclick', (e) => {
+            if (this.currentMode !== 'flashcards') return;
+            const isInteractive = e.target.closest('button, input, a, select, textarea');
+            if (!isInteractive) {
+                this.flipCard();
+            }
+        });
+
         document.addEventListener('mouseup', (e) => {
             if (!isDragging || this.currentMode !== 'flashcards') return;
             isDragging = false;
@@ -1014,6 +1088,23 @@ removeDuplicates() {
         });
     }
 
+    animateFlashcardFadeOut() {
+        const flashcard = document.getElementById('flashcard');
+        if (!flashcard) return;
+        flashcard.style.transition = 'opacity 0.3s ease';
+        flashcard.style.opacity = '0';
+    }
+
+    animateFlashcardOut(direction = 'right') {
+        const flashcard = document.getElementById('flashcard');
+        if (!flashcard) return;
+        const distance = direction === 'right' ? '100vw' : '-100vw';
+        const angle = direction === 'right' ? '30deg' : '-30deg';
+        flashcard.style.transition = 'all 0.3s ease';
+        flashcard.style.transform = `translateX(${distance}) rotate(${angle})`;
+        flashcard.style.opacity = '0';
+    }
+
     handleSwipeRight() {
         // Swipe right - znam słowo
         const flashcard = document.getElementById('flashcard');
@@ -1022,8 +1113,7 @@ removeDuplicates() {
         
         setTimeout(() => {
             this.recordAnswer(true);
-            flashcard.style.transform = 'translateX(0) rotate(0deg)';
-            flashcard.style.opacity = '1';
+            // Do not reset position here; next card will reset state in loadFlashcard
         }, 300);
     }
 
@@ -1035,8 +1125,7 @@ removeDuplicates() {
         
         setTimeout(() => {
             this.recordAnswer(false);
-            flashcard.style.transform = 'translateX(0) rotate(0deg)';
-            flashcard.style.opacity = '1';
+            // Do not reset position here; next card will reset state in loadFlashcard
         }, 300);
     }
 
@@ -1103,10 +1192,11 @@ removeDuplicates() {
         flashcard.style.borderColor = '#51cf66';
         
         setTimeout(() => {
+            this.animateFlashcardFadeOut();
             flashcard.style.transform = 'scale(1)';
             flashcard.style.borderColor = '';
-            this.recordAnswer(true);
-        }, 200);
+            setTimeout(() => this.recordAnswer(true), 300);
+        }, 150);
     }
 
     handleKeyboardWrong() {
@@ -1116,10 +1206,11 @@ removeDuplicates() {
         flashcard.style.borderColor = '#ff6b6b';
         
         setTimeout(() => {
+            this.animateFlashcardFadeOut();
             flashcard.style.transform = 'scale(1)';
             flashcard.style.borderColor = '';
-            this.recordAnswer(false);
-        }, 200);
+            setTimeout(() => this.recordAnswer(false), 300);
+        }, 150);
     }
 
     playTone(frequency, duration, waveType = 'sine', volume = 0.1) {
@@ -2749,27 +2840,39 @@ updateApiKeyFieldState() {
 
 
    async parseAIResponse(response, category = 'inne') {
+    // Parser odporny na code-fence'y, dopiski i częściowo uszkodzony JSON
     try {
-        const cleanResponse = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const parsed = JSON.parse(cleanResponse);
+        // Usuń znaczniki ``` i ```json
+        let cleaned = String(response || '')
+            .replace(/```json/gi, '')
+            .replace(/```/g, '')
+            .trim();
 
+        // Spróbuj wyciąć fragment między pierwszym '[' a ostatnim ']'
+        const firstBracket = cleaned.indexOf('[');
+        const lastBracket = cleaned.lastIndexOf(']');
+        if (firstBracket !== -1 && lastBracket > firstBracket) {
+            cleaned = cleaned.slice(firstBracket, lastBracket + 1);
+        }
+
+        // Główna próba parsowania
+        let parsed = JSON.parse(cleaned);
         if (!Array.isArray(parsed)) {
             throw new Error('Odpowiedź AI nie jest tablicą.');
         }
 
-        // Weryfikujemy, czy każdy element jest poprawnym obiektem
+        // Walidacja elementów
         const validWords = parsed.filter(item =>
             typeof item === 'object' &&
             item !== null &&
             typeof item.polish === 'string' && item.polish.trim() !== '' &&
             typeof item.english === 'string' && item.english.trim() !== ''
         );
-        
         if (validWords.length !== parsed.length) {
-            console.warn("Niektóre obiekty od AI miały nieprawidłowy format i zostały odrzucone.");
+            console.warn('Niektóre obiekty od AI miały nieprawidłowy format i zostały odrzucone.');
         }
 
-        // Mapujemy na format używany w aplikacji
+        // Mapowanie na wewnętrzny format
         return validWords.map(word => ({
             polish: word.polish,
             english: word.english,
@@ -2790,14 +2893,54 @@ updateApiKeyFieldState() {
                     exactQuote: !!ex.exactQuote
                 }))
                 : [],
-            category: word.category || category, // Użyj przekazanej kategorii
+            category: word.category || category,
             difficulty: this.mapLevelToDifficulty(this.settings.languageLevel),
             level: this.settings.languageLevel
         }));
-
-    } catch (error) {
-        console.error('Błąd parsowania odpowiedzi AI:', error, "Otrzymana odpowiedź:", response);
-        throw error;
+    } catch (err) {
+        // Próba ratunkowa: wyciągnij pary polish/english z tekstu zwykłym regexem
+        try {
+            const text = String(response || '');
+            const pairRegex = /\"polish\"\s*:\s*\"([^\"]+)\"[\s\S]*?\"english\"\s*:\s*\"([^\"]+)\"/gi;
+            const results = [];
+            const seen = new Set();
+            let m;
+            while ((m = pairRegex.exec(text)) !== null) {
+                const pl = m[1].trim();
+                const en = m[2].trim();
+                if (pl && en) {
+                    const key = `${pl.toLowerCase()}|${en.toLowerCase()}`;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        results.push({ polish: pl, english: en });
+                    }
+                }
+            }
+            if (results.length > 0) {
+                console.warn('JSON od AI był niepoprawny – odzyskano pary poprzez analizę tekstu.');
+                return results.map(word => ({
+                    polish: word.polish,
+                    english: word.english,
+                    status: 'new',
+                    attempts: 0,
+                    correct: 0,
+                    lastReview: null,
+                    nextReview: null,
+                    aiGenerated: true,
+                    hasImage: true,
+                    verified: false,
+                    sources: [],
+                    examples: [],
+                    category,
+                    difficulty: this.mapLevelToDifficulty(this.settings.languageLevel),
+                    level: this.settings.languageLevel
+                }));
+            }
+        } catch (_) {
+            // Ignoruj – przejdź do błędu głównego
+        }
+        console.error('Błąd parsowania odpowiedzi AI:', err, 'Otrzymana odpowiedź:', response);
+        throw err;
     }
 }
 

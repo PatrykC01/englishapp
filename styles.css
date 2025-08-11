@@ -78,6 +78,10 @@ body {
 .stat-card.ai-info {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
+    display: flex;
+    align-content: center;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 .stat-card.ai-info .stat-label {
@@ -246,7 +250,8 @@ body {
     height: 400px;
     margin: 0 auto;
     perspective: 1200px;
-    cursor: pointer;
+    /* Remove pointer cursor to avoid suggesting single-tap flip */
+    cursor: default;
     transform-style: preserve-3d;
 }
 
