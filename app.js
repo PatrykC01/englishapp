@@ -55,6 +55,7 @@ class VocabularyApp {
         }
     }
     constructor() {
+        this.imagePromptCache = {};
         this.words = [];
         this.currentStudySet = [];
         this.currentWordIndex = 0;
@@ -87,7 +88,8 @@ class VocabularyApp {
             enableImagen: true,
             autoFlipEnabled: false,
             autoFlipDelay: 3,
-            enableDikiVerification: true // Nowe ustawienie weryfikacji DIKI
+            enableDikiVerification: true, // Nowe ustawienie weryfikacji DIKI
+            flashcardAnimMs: 1000
         };
         
         // AI word generation - rozszerzone kategorie + dynamiczne
@@ -338,7 +340,7 @@ removeDuplicates() {
         document.querySelector('.btn-wrong').addEventListener('click', () => {
             if (this.currentMode === 'flashcards') {
                 this.animateFlashcardFadeOut();
-                setTimeout(() => this.recordAnswer(false), 300);
+                setTimeout(() => this.recordAnswer(false), this.settings.flashcardAnimMs);
             } else {
                 this.recordAnswer(false);
             }
@@ -347,7 +349,7 @@ removeDuplicates() {
         document.querySelector('.btn-correct').addEventListener('click', () => {
             if (this.currentMode === 'flashcards') {
                 this.animateFlashcardFadeOut();
-                setTimeout(() => this.recordAnswer(true), 300);
+                setTimeout(() => this.recordAnswer(true), this.settings.flashcardAnimMs);
             } else {
                 this.recordAnswer(true);
             }
@@ -475,8 +477,24 @@ removeDuplicates() {
             this.generateNewWords();
         });
 
-        // AI settings
-        document.getElementById('ai-provider').addEventListener('change', (e) => {
+        // Flashcard animation speed
+       const animSpeedInput = document.getElementById('flashcard-anim-speed');
+       const animSpeedValue = document.getElementById('flashcard-anim-speed-value');
+       if (animSpeedInput && animSpeedValue) {
+           const updateAnimLabel = (val) => animSpeedValue.textContent = `${val} ms`;
+           updateAnimLabel(this.settings.flashcardAnimMs);
+           animSpeedInput.addEventListener('input', (e) => {
+               updateAnimLabel(e.target.value);
+           });
+           animSpeedInput.addEventListener('change', (e) => {
+               this.settings.flashcardAnimMs = parseInt(e.target.value);
+               updateAnimLabel(this.settings.flashcardAnimMs);
+               this.saveData();
+           });
+       }
+
+       // AI settings
+       document.getElementById('ai-provider').addEventListener('change', (e) => {
             this.settings.aiProvider = e.target.value;
             this.updateAIModelOptions();
             this.updateApiKeyFieldState();
@@ -660,11 +678,13 @@ removeDuplicates() {
         flashcard.classList.remove('flipped');
         frontWord.textContent = word.polish;
         backWord.textContent = word.english;
+        // Reset stanu ręcznego obrotu dla nowej fiszki
+        this.userFlippedCurrent = false;
         
         // Dodaj kolorową ramkę na podstawie trudności słowa
         this.setDifficultyBorder(flashcard, word);
         
-        this.loadWordImage(wordImage, word.english);
+        this.loadWordImage(wordImage, word.english, word.polish);
         
         // Auto-flip jeśli włączony
         this.setupAutoFlip();
@@ -692,6 +712,7 @@ removeDuplicates() {
     }
 
     flipCard() {
+        this.userFlippedCurrent = true;
         document.getElementById('flashcard').classList.toggle('flipped');
     }
 
@@ -707,8 +728,11 @@ removeDuplicates() {
             // Jeśli karta nie jest przewrócona, ustaw timer
             if (!flashcard.classList.contains('flipped')) {
                 this.autoFlipTimer = setTimeout(() => {
-                    this.flipCard();
-                    this.showAutoFlipIndicator();
+                    // Auto-obrót tylko jeśli karta wciąż nieprzewrócona i użytkownik jej nie obrócił ręcznie
+                    if (!this.userFlippedCurrent) {
+                        this.flipCard();
+                        this.showAutoFlipIndicator();
+                    }
                 }, this.settings.autoFlipDelay * 1000);
             }
         }
@@ -736,7 +760,7 @@ removeDuplicates() {
         feedback.textContent = '';
         feedback.className = 'feedback';
         
-        this.loadWordImage(typingImage, word.english);
+        this.loadWordImage(typingImage, word.english, word.polish);
         answerInput.focus();
     }
 
@@ -774,7 +798,7 @@ removeDuplicates() {
         feedback.textContent = '';
         feedback.className = 'feedback';
         
-        this.loadWordImage(listeningImage, word.english);
+        this.loadWordImage(listeningImage, word.english, word.polish);
         
         // Generate speech synthesis for the English word
         audio.src = this.generateAudioURL(word.english);
@@ -1003,7 +1027,10 @@ removeDuplicates() {
             const rotation = currentX * 0.1;
             const opacity = Math.max(0.7, 1 - Math.abs(currentX) / 300);
             
-            flashcard.style.transform = `translateX(${currentX}px) rotate(${rotation}deg)`;
+            // Clamp horizontal movement to avoid expanding layout
+            const maxX = Math.min(window.innerWidth * 0.45, 300);
+            const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
+            flashcard.style.transform = `translateX(${clampedX}px) rotate(${rotation}deg)`;
             flashcard.style.opacity = opacity;
             
             // Pokaż wskazówki kolorami
@@ -1020,7 +1047,7 @@ removeDuplicates() {
             if (!isDragging || this.currentMode !== 'flashcards') return;
             isDragging = false;
             
-            flashcard.style.transition = 'all 0.3s ease';
+            flashcard.style.transition = 'all 1s ease';
             flashcard.style.borderColor = 'transparent';
             
             // Double-tap to flip (mobile)
@@ -1106,7 +1133,10 @@ removeDuplicates() {
             const rotation = currentX * 0.1;
             const opacity = Math.max(0.7, 1 - Math.abs(currentX) / 300);
             
-            flashcard.style.transform = `translateX(${currentX}px) rotate(${rotation}deg)`;
+            // Clamp horizontal movement to avoid expanding layout
+            const maxX = Math.min(window.innerWidth * 0.45, 300);
+            const clampedX = Math.max(-maxX, Math.min(maxX, currentX));
+            flashcard.style.transform = `translateX(${clampedX}px) rotate(${rotation}deg)`;
             flashcard.style.opacity = opacity;
             
             if (currentX > 50) {
@@ -1131,7 +1161,7 @@ removeDuplicates() {
             if (!isDragging || this.currentMode !== 'flashcards') return;
             isDragging = false;
             
-            flashcard.style.transition = 'all 0.3s ease';
+            flashcard.style.transition = 'all 1s ease';
             flashcard.style.borderColor = 'transparent';
             
             if (Math.abs(currentX) > 100) {
@@ -1153,7 +1183,7 @@ removeDuplicates() {
     animateFlashcardFadeOut() {
         const flashcard = document.getElementById('flashcard');
         if (!flashcard) return;
-        flashcard.style.transition = 'opacity 0.3s ease';
+        flashcard.style.transition = `opacity ${this.settings.flashcardAnimMs}ms ease`;
         flashcard.style.opacity = '0';
     }
 
@@ -1162,7 +1192,7 @@ removeDuplicates() {
         if (!flashcard) return;
         const distance = direction === 'right' ? '100vw' : '-100vw';
         const angle = direction === 'right' ? '30deg' : '-30deg';
-        flashcard.style.transition = 'all 0.3s ease';
+        flashcard.style.transition = `all ${this.settings.flashcardAnimMs}ms ease`;
         flashcard.style.transform = `translateX(${distance}) rotate(${angle})`;
         flashcard.style.opacity = '0';
     }
@@ -1176,7 +1206,7 @@ removeDuplicates() {
         setTimeout(() => {
             this.recordAnswer(true);
             // Do not reset position here; next card will reset state in loadFlashcard
-        }, 300);
+        }, this.settings.flashcardAnimMs);
     }
 
     handleSwipeLeft() {
@@ -1188,7 +1218,7 @@ removeDuplicates() {
         setTimeout(() => {
             this.recordAnswer(false);
             // Do not reset position here; next card will reset state in loadFlashcard
-        }, 300);
+        }, this.settings.flashcardAnimMs);
     }
 
     // Keyboard controls dla fiszek
@@ -1257,7 +1287,7 @@ removeDuplicates() {
             this.animateFlashcardFadeOut();
             flashcard.style.transform = 'scale(1)';
             flashcard.style.borderColor = '';
-            setTimeout(() => this.recordAnswer(true), 300);
+            setTimeout(() => this.recordAnswer(true), this.settings.flashcardAnimMs);
         }, 150);
     }
 
@@ -1271,7 +1301,7 @@ removeDuplicates() {
             this.animateFlashcardFadeOut();
             flashcard.style.transform = 'scale(1)';
             flashcard.style.borderColor = '';
-            setTimeout(() => this.recordAnswer(false), 300);
+            setTimeout(() => this.recordAnswer(false), this.settings.flashcardAnimMs);
         }, 150);
     }
 
@@ -1524,13 +1554,13 @@ removeDuplicates() {
     }
 
     // Word Image Loading
-    async loadWordImage(container, englishWord) {
+    async loadWordImage(container, englishWord, polishWord) {
         container.style.backgroundImage = '';
         container.textContent = '🖼️';
         
         try {
             // Najpierw spróbuj wygenerować obrazek z bezpłatnym AI
-            const aiImageUrl = await this.generateFreeAIImage(englishWord);
+            const aiImageUrl = await this.generateFreeAIImage(englishWord, polishWord);
             if (aiImageUrl) {
                 const img = new Image();
                 img.onload = () => {
@@ -1538,7 +1568,7 @@ removeDuplicates() {
                     container.textContent = '';
                 };
                 img.onerror = () => {
-                    this.loadFallbackImage(container, englishWord);
+                    this.loadFallbackImage(container, englishWord, polishWord);
                 };
                 img.src = aiImageUrl;
                 return;
@@ -1548,18 +1578,52 @@ removeDuplicates() {
         }
         
         // Fallback do innych serwisów
-        this.loadFallbackImage(container, englishWord);
+        this.loadFallbackImage(container, englishWord, polishWord);
+    }
+
+    // Definition helper for image prompts
+    async getImageSenseText(englishWord, polishWord) {
+        try {
+            const key = `${englishWord.toLowerCase()}|${(polishWord || '').toLowerCase()}`;
+            if (this.imagePromptCache[key]) return this.imagePromptCache[key];
+            let definition = null;
+            const provider = this.settings.aiProvider;
+            const canUseAI = !!this.settings.aiApiKey && ['openai','anthropic','gemini'].includes(provider);
+            if (canUseAI) {
+                const prompt = `Disambiguate and define an English word for image generation.\nEnglish word: "${englishWord}"\nPolish translation: "${polishWord || ''}"\nWrite one short English definition sentence (max 22 words) that matches the Polish meaning. No examples, no extra text. Return only the sentence.`;
+                try {
+                    let resp;
+                    if (provider === 'openai') resp = await this.callOpenAI(prompt);
+                    else if (provider === 'anthropic') resp = await this.callAnthropic(prompt);
+                    else if (provider === 'gemini') resp = await this.callGemini(prompt);
+                    definition = String(resp || '').split('\n')[0].trim();
+                    definition = definition.replace(/^```.*$/g, '').replace(/^['"“”]+|['"“”]+$/g, '').trim();
+                    if (definition.length > 180) definition = definition.slice(0, 180);
+                } catch (e) {
+                    definition = null;
+                }
+            }
+            if (!definition) {
+                const category = this.guessWordCategory(polishWord || '') || 'general';
+                definition = `the sense of ${englishWord} that corresponds to the Polish \"${polishWord || englishWord}\" (${category})`;
+            }
+            this.imagePromptCache[key] = definition;
+            return definition;
+        } catch (_) {
+            return englishWord;
+        }
     }
 
     // Generowanie obrazków z bezpłatnym AI (Pollinations AI)
-    async generateFreeAIImage(word) {
+    async generateFreeAIImage(englishWord, polishWord) {
         try {
-            // Pollinations AI - bezpłatny serwis do generowania obrazków
-            const prompt = `simple illustration of ${word}, educational style, clean white background, minimalist, suitable for language learning`;
+            // Pollinations AI - bezpłatny serwis do generowania obrazków (z definicją dla jednoznaczności)
+            const sense = await this.getImageSenseText(englishWord, polishWord);
+            const prompt = `simple illustration of ${sense}, clean white background, minimalist, flat vector, clipart style, no text, no words, no letters, no captions, no watermark, label-free, pictorial only`;
             const encodedPrompt = encodeURIComponent(prompt);
             
-            // Generujemy unikalny seed na podstawie słowa
-            const seed = this.hashCode(word);
+            // Generujemy unikalny seed na podstawie EN+PL
+            const seed = this.hashCode(`${englishWord}|${polishWord || ''}|imgv2`);
             const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=150&height=150&seed=${seed}&nologo=true`;
             
             // Sprawdź czy obrazek się ładuje
@@ -1570,7 +1634,7 @@ removeDuplicates() {
                 img.src = imageUrl;
                 
                 // Timeout po 5 sekundach
-                setTimeout(() => resolve(null), 5000);
+                setTimeout(() => resolve(null), 10000);
             });
         } catch (error) {
             console.error('Błąd generowania obrazu z Pollinations:', error);
@@ -1580,7 +1644,7 @@ removeDuplicates() {
 
     async generateImageWithImagen(word) {
         try {
-            const prompt = `A simple, clear illustration of ${word}. Educational style, clean background, suitable for language learning.`;
+            const prompt = `A simple, clear illustration of ${word}, clean white background, flat vector, clipart style, no text, no words, no letters, no captions, no watermark, label-free, pictorial only`;
             
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateImage?key=${this.settings.aiApiKey}`, {
                 method: 'POST',
@@ -1627,10 +1691,10 @@ removeDuplicates() {
         return new Blob([byteArray], { type: mimeType });
     }
 
-    async loadFallbackImage(container, englishWord) {
+    async loadFallbackImage(container, englishWord, polishWord) {
         try {
             // Spróbuj drugi bezpłatny serwis AI - Hugging Face
-            const hfImageUrl = await this.generateHuggingFaceImage(englishWord);
+            const hfImageUrl = await this.generateHuggingFaceImage(englishWord, polishWord);
             if (hfImageUrl) {
                 const img = new Image();
                 img.onload = () => {
@@ -1652,14 +1716,15 @@ removeDuplicates() {
     }
 
     // Drugi serwis AI - prostszy prompt
-    async generateHuggingFaceImage(word) {
+    async generateHuggingFaceImage(englishWord, polishWord) {
         try {
-            // Używamy prostszego serwisu z ikonami
-            const prompt = `${word} icon, simple, clean, white background`;
+            // Użyj tej samej strategii rozstrzygania znaczeń jak w głównym generatorze
+            const sense = await this.getImageSenseText(englishWord, polishWord);
+            const prompt = `simple icon of ${sense}, clean white background, minimalist, flat vector, clipart icon, no text, no words, no letters, no captions, no watermark, label-free`;
             const encodedPrompt = encodeURIComponent(prompt);
-            const seed = this.hashCode(word);
+            const seed = this.hashCode(`${englishWord}|${polishWord || ''}|iconv1`);
             
-            // Alternatywny serwis AI
+            // Alternatywne wywołanie generatora obrazów (Pollinations - model flux)
             const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=150&height=150&seed=${seed}&model=flux&nologo=true`;
             
             return new Promise((resolve) => {
@@ -1667,7 +1732,7 @@ removeDuplicates() {
                 img.onload = () => resolve(imageUrl);
                 img.onerror = () => resolve(null);
                 img.src = imageUrl;
-                setTimeout(() => resolve(null), 3000);
+                setTimeout(() => resolve(null), 10000);
             });
         } catch (error) {
             return null;
@@ -3180,6 +3245,12 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         // Auto-flip settings
         document.getElementById('auto-flip-enabled').checked = this.settings.autoFlipEnabled;
         document.getElementById('auto-flip-delay').value = this.settings.autoFlipDelay;
+        const animSpeedInput = document.getElementById('flashcard-anim-speed');
+        const animSpeedValue = document.getElementById('flashcard-anim-speed-value');
+        if (animSpeedInput && animSpeedValue) {
+            animSpeedInput.value = this.settings.flashcardAnimMs;
+            animSpeedValue.textContent = `${this.settings.flashcardAnimMs} ms`;
+        }
         
         // AI settings
         document.getElementById('ai-provider').value = this.settings.aiProvider;
