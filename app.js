@@ -1,4 +1,12 @@
 // Polish-English Vocabulary Learning App
+// Debug logs for AI image generation (set to false or comment out to disable)
+const AI_IMAGE_DEBUG = true; // <-- toggle this flag to enable/disable image debug logs easily
+const AI_IMAGE_MIN_DIM = 256; // Pollinations/Flux require >= 256 for width/height
+function AI_IMG_DBG(...args) {
+    try {
+        if (AI_IMAGE_DEBUG) console.log('[AI-IMG]', ...args);
+    } catch (_) {}
+}
 class VocabularyApp {
     // Renderuje przykłady dla obecnego słowa albo linki wyszukiwania
     renderExamplesForCurrentWord() {
@@ -1557,6 +1565,7 @@ removeDuplicates() {
     async loadWordImage(container, englishWord, polishWord) {
         container.style.backgroundImage = '';
         container.textContent = '🖼️';
+        AI_IMG_DBG('loadWordImage start', { englishWord, polishWord });
         
         try {
             // Najpierw spróbuj wygenerować obrazek z bezpłatnym AI
@@ -1564,10 +1573,12 @@ removeDuplicates() {
             if (aiImageUrl) {
                 const img = new Image();
                 img.onload = () => {
+                    AI_IMG_DBG('Pollinations image loaded OK', { imageUrl: aiImageUrl });
                     container.style.backgroundImage = `url(${aiImageUrl})`;
                     container.textContent = '';
                 };
                 img.onerror = () => {
+                    AI_IMG_DBG('Pollinations image error -> fallback', { imageUrl: aiImageUrl });
                     this.loadFallbackImage(container, englishWord, polishWord);
                 };
                 img.src = aiImageUrl;
@@ -1583,6 +1594,7 @@ removeDuplicates() {
 
     // Definition helper for image prompts
     async getImageSenseText(englishWord, polishWord) {
+        AI_IMG_DBG('getImageSenseText called', { englishWord, polishWord });
         try {
             const key = `${englishWord.toLowerCase()}|${(polishWord || '').toLowerCase()}`;
             if (this.imagePromptCache[key]) return this.imagePromptCache[key];
@@ -1595,7 +1607,7 @@ removeDuplicates() {
                     let resp;
                     if (provider === 'openai') resp = await this.callOpenAI(prompt);
                     else if (provider === 'anthropic') resp = await this.callAnthropic(prompt);
-                    else if (provider === 'gemini') resp = await this.callGemini(prompt);
+                    else if (provider === 'gemini') resp = await this.callGemini(prompt, { responseMimeType: 'text/plain' });
                     definition = String(resp || '').split('\n')[0].trim();
                     definition = definition.replace(/^```.*$/g, '').replace(/^['"“”]+|['"“”]+$/g, '').trim();
                     if (definition.length > 180) definition = definition.slice(0, 180);
@@ -1619,12 +1631,14 @@ removeDuplicates() {
         try {
             // Pollinations AI - bezpłatny serwis do generowania obrazków (z definicją dla jednoznaczności)
             const sense = await this.getImageSenseText(englishWord, polishWord);
-            const prompt = `simple illustration of ${sense}, clean white background, minimalist, flat vector, clipart style, no text, no words, no letters, no captions, no watermark, label-free, pictorial only`;
+            AI_IMG_DBG('Sense (Pollinations)', { englishWord, polishWord, sense });
+            const prompt = `${englishWord} - ${sense}`;
             const encodedPrompt = encodeURIComponent(prompt);
             
             // Generujemy unikalny seed na podstawie EN+PL
             const seed = this.hashCode(`${englishWord}|${polishWord || ''}|imgv2`);
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=150&height=150&seed=${seed}&nologo=true`;
+            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
+            AI_IMG_DBG('Fetch Pollinations URL', { imageUrl, prompt, seed });
             
             // Sprawdź czy obrazek się ładuje
             return new Promise((resolve) => {
@@ -1720,12 +1734,14 @@ removeDuplicates() {
         try {
             // Użyj tej samej strategii rozstrzygania znaczeń jak w głównym generatorze
             const sense = await this.getImageSenseText(englishWord, polishWord);
-            const prompt = `simple icon of ${sense}, clean white background, minimalist, flat vector, clipart icon, no text, no words, no letters, no captions, no watermark, label-free`;
+            const prompt = `${englishWord} - ${sense}`;
+            AI_IMG_DBG('Sense (HF icon)', { englishWord, polishWord, sense });
             const encodedPrompt = encodeURIComponent(prompt);
             const seed = this.hashCode(`${englishWord}|${polishWord || ''}|iconv1`);
             
             // Alternatywne wywołanie generatora obrazów (Pollinations - model flux)
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=150&height=150&seed=${seed}&model=flux&nologo=true`;
+            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
+            AI_IMG_DBG('Fetch HF(Flux) URL', { imageUrl, prompt, seed });
             
             return new Promise((resolve) => {
                 const img = new Image();
@@ -2725,13 +2741,39 @@ getWordsByLevel(level, category, count, existingWords = [], userProgress = null)
 
     // AI Integration Functions
  buildAIPrompt(category, level, count) {
-    const existingWords = this.words.map(w => w.english).slice(-50).join(', ');
+    const existingWords = this.words.map(w => w.english).slice(-20).join(', ');
 
-    return `Jesteś leksykografem. Zwróć TYLKO JSON (tablica obiektów), bez dodatkowych komentarzy.
+    // Dla Gemini użyj zwięzłego promptu i minimalnego formatu (zmniejsza ryzyko MAX_TOKENS)
+    if (this.settings.aiProvider === 'gemini') {
+        return `Jesteś leksykografem. Zwróć TYLKO JSON (tablica obiektów) bez markdown i bez komentarzy.
+
+KONTEKST:
+- Temat: ${category}
+- Poziom: ${level} (CEFR)
+- Unikaj słów już użytych: ${existingWords}
 
 ZADANIE:
-- Wygeneruj ${count} uniwersalnych haseł PL→EN, poziom ${level} (CEFR). Jeśli nie podano tematu, dobierz słowa częste i użyteczne dla poziomu.
-- Unikaj słów już użytych: ${existingWords}.
+- Wygeneruj ${count} par PL→EN związanych z tematem.
+- Każdy element: {"polish":"…","english":"…"} (dokładnie te dwa pola).
+- Bez dodatkowych pól (brak sources, examples, notes itp.).
+
+GUARDY:
+- Nie zwracaj english == polish (wyjątki: "hotel", "internet", "radio").
+- "parapet" (PL, okienny) → "windowsill" (lub "window ledge").
+- "skosy" (we wnętrzach/poddasze) → "sloped ceilings" lub "pitched ceilings".
+`;
+    }
+
+    // Domyślny (bogatszy) prompt dla pozostałych dostawców
+    return `Jesteś leksykografem. Zwróć TYLKO JSON (tablica obiektów), bez dodatkowych komentarzy.
+
+KONTEKST:
+- Temat: ${category}
+- Poziom: ${level} (CEFR)
+- Unikaj słów już użytych: ${existingWords}
+
+ZADANIE:
+- Wygeneruj ${count} haseł PL→EN, ściśle związanych z tematem i dopasowanych do poziomu.
 
 FORMAT (dokładnie):
 [
@@ -2751,7 +2793,7 @@ ZASADY PRZEGLĄDANIA (jeśli masz dostęp do sieci):
 - Jeśli nie możesz zweryfikować online: ustaw verified=false, sources=[], examples=[]. Nie wymyślaj cytatów ani linków.
 
 GUARDY PRZECIW BŁĘDOM:
-1) Nie zwracaj english == polish (po znormalizowaniu) chyba że to oczywisty internacjonalizm (np. "hotel", "internet", "radio"). Jeśli masz tylko identyczną formę – ustaw verified=false i dodaj wyjaśnienie w notes lub wybierz naturalny odpowiednik.
+1) Nie zwracaj english == polish (po znormalizowaniu) chyba że to oczywisty internacjonalizm (np. "hotel", "internet", "radio").
 2) "parapet" (PL, okienny) → "windowsill" (preferowane) lub "window ledge". Uwaga: ang. "parapet" to niska ścianka ochronna (na dachu/mostku/balkonie).
 3) "skosy" (we wnętrzach/poddasze) → preferuj "sloped ceilings" lub "pitched ceilings". Gdy chodzi o ściany: "slanted walls/sloped walls" zależnie od kontekstu.
 4) Przed zwrotem JSON wykonaj autokontrolę: brak nieuzasadnionych form english==polish; jeśli browsing działa – czy verified=true ma ≥2 sources i 1–2 examples z linkami.
@@ -2818,8 +2860,24 @@ GUARDY PRZECIW BŁĘDOM:
         return data.content[0].text;
     }
 
-    async callGemini(prompt) {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.settings.aiApiKey}`, {
+    async callGemini(prompt, options = {}) {
+        // Użyj wybranego modelu z ustawień lub domyślnie Gemini 2.5 Flash
+        const model = (this.settings.aiModel && String(this.settings.aiModel).startsWith('gemini-'))
+            ? this.settings.aiModel
+            : 'gemini-2.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${this.settings.aiApiKey}`;
+
+        const generationConfig = {
+            temperature: 0.5,
+            topK: 32,
+            topP: 0.9,
+            maxOutputTokens: 2048
+        };
+        if (options && options.responseMimeType) {
+            generationConfig.responseMimeType = options.responseMimeType;
+        }
+
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -2834,12 +2892,7 @@ GUARDY PRZECIW BŁĘDOM:
                         ]
                     }
                 ],
-                generationConfig: {
-                    temperature: 0.7,
-                    topK: 40,
-                    topP: 0.95,
-                    maxOutputTokens: 1024
-                }
+                generationConfig
             })
         });
 
@@ -2849,10 +2902,43 @@ GUARDY PRZECIW BŁĘDOM:
         }
 
         const data = await response.json();
-        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-            throw new Error('Nieprawidłowa odpowiedź z Gemini API');
+
+        // Jeśli API zwróciło blokadę bezpieczeństwa lub brak kandydatów – pokaż czytelną informację
+        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+        if (candidates.length === 0) {
+            const pf = data.promptFeedback || {};
+            const safety = pf.safetyRatings || pf.blockReason || pf.feedback || null;
+            const msg = safety ? `Brak kandydatów (safety): ${JSON.stringify(safety)}` : 'Brak kandydatów w odpowiedzi';
+            throw new Error(`Nieprawidłowa odpowiedź z Gemini API: ${msg}`);
         }
-        return data.candidates[0].content.parts[0].text;
+
+        // Bezpieczne wyciągnięcie tekstu z różnych możliwych kształtów odpowiedzi
+        const first = candidates[0];
+        let text = '';
+        const parts = first && first.content && Array.isArray(first.content.parts) ? first.content.parts : null;
+        if (parts) {
+            const withText = parts.find(p => typeof p.text === 'string' && p.text.trim().length > 0);
+            if (withText) {
+                text = withText.text;
+            } else {
+                text = parts.map(p => p && p.text ? p.text : '').filter(Boolean).join('\n').trim();
+            }
+        }
+        if (!text && first && first.content && typeof first.content.text === 'string') {
+            text = first.content.text;
+        }
+        if (!text && typeof first.output === 'string') {
+            text = first.output;
+        }
+
+        if (!text || !text.trim()) {
+            const shortDump = (() => {
+                try { return JSON.stringify(data).slice(0, 800); } catch (_) { return '[unserializable]'; }
+            })();
+            throw new Error(`Nieprawidłowa odpowiedź z Gemini API: brak treści tekstowej. Debug: ${shortDump}`);
+        }
+
+        return text.trim();
     }
 
     // NOWA FUNKCJA: Do obsługi Hugging Face API
@@ -3285,30 +3371,30 @@ updateAIModelOptions() {
             { value: 'libre', text: 'LibreTranslate (Open Source)' },
             { value: 'local', text: 'Lokalna baza słów' }
         ],
-       'openai': [
-        { value: 'gpt-3.5-turbo', text: 'GPT-3.5 Turbo' },
-        { value: 'gpt-4', text: 'GPT-4' },
-        { value: 'gpt-4-turbo', text: 'GPT-4 Turbo' }
-    ],
-            'anthropic': [
-                { value: 'claude-3-sonnet-20240229', text: 'Claude 3 Sonnet' },
-                { value: 'claude-3-opus-20240229', text: 'Claude 3 Opus' },
-                { value: 'claude-3-haiku-20240307', text: 'Claude 3 Haiku' }
-            ],
-            'gemini': [
-                { value: 'gemini-pro', text: 'Gemini Pro' },
-                { value: 'gemini-1.5-flash', text: 'Gemini 1.5 Flash' },
-                { value: 'gemini-1.5-pro', text: 'Gemini 1.5 Pro' }
-            ],
-            'huggingface': [
-    { value: 'Qwen/Qwen2.5-0.5B-Instruct', text: 'Qwen 2.5 (0.5B) - Szybki' },
-    { value: 'microsoft/Phi-3.5-mini-instruct', text: 'Phi 3.5 Mini' },
-    { value: 'HuggingFaceH4/zephyr-7b-beta', text: 'Zephyr 7B (może wymagać czasu)' },
-    { value: 'TinyLlama/TinyLlama-1.1B-Chat-v1.0', text: 'TinyLlama 1.1B' }
-]
-        };
-        
-   const currentProvider = this.settings.aiProvider;
+        'openai': [
+            { value: 'gpt-3.5-turbo', text: 'GPT-3.5 Turbo' },
+            { value: 'gpt-4', text: 'GPT-4' },
+            { value: 'gpt-4-turbo', text: 'GPT-4 Turbo' }
+        ],
+        'anthropic': [
+            { value: 'claude-3-sonnet-20240229', text: 'Claude 3 Sonnet' },
+            { value: 'claude-3-opus-20240229', text: 'Claude 3 Opus' },
+            { value: 'claude-3-haiku-20240307', text: 'Claude 3 Haiku' }
+        ],
+        'gemini': [
+            { value: 'gemini-2.5-flash', text: 'Gemini 2.5 Flash (Najnowszy)' },
+            { value: 'gemini-2.5-pro', text: 'Gemini 2.5 Pro (Zaawansowany)' },
+            { value: 'gemini-2.5-flash-lite', text: 'Gemini 2.5 Flash-Lite (Ekonomiczny)' }
+        ],
+        'huggingface': [
+            { value: 'Qwen/Qwen2.5-0.5B-Instruct', text: 'Qwen 2.5 (0.5B) - Szybki' },
+            { value: 'microsoft/Phi-3.5-mini-instruct', text: 'Phi 3.5 Mini' },
+            { value: 'HuggingFaceH4/zephyr-7b-beta', text: 'Zephyr 7B (może wymagać czasu)' },
+            { value: 'TinyLlama/TinyLlama-1.1B-Chat-v1.0', text: 'TinyLlama 1.1B' }
+        ]
+    };
+    
+    const currentProvider = this.settings.aiProvider;
     const options = modelOptions[currentProvider] || modelOptions['free'];
     
     options.forEach(option => {
@@ -3318,16 +3404,37 @@ updateAIModelOptions() {
         modelSelect.appendChild(optionEl);
     });
     
-    // Ustaw domyślną wartość
-    if (this.settings.aiProvider === 'free') {
-        modelSelect.value = 'mymemory';
-        this.settings.aiModel = 'mymemory';
+    // Wybierz odpowiedni model domyślny/istniejący dla bieżącego providera
+    const allowedValues = options.map(o => o.value);
+    let desired = this.settings.aiModel;
+
+    if (currentProvider === 'free') {
+        desired = allowedValues.includes('mymemory') ? 'mymemory' : allowedValues[0];
+    } else if (currentProvider === 'gemini') {
+        if (!desired || !String(desired).startsWith('gemini-') || !allowedValues.includes(desired)) {
+            desired = allowedValues.includes('gemini-2.5-flash') ? 'gemini-2.5-flash' : allowedValues[0];
+        }
+    } else if (currentProvider === 'openai') {
+        if (!desired || !allowedValues.includes(desired)) {
+            desired = allowedValues.includes('gpt-3.5-turbo') ? 'gpt-3.5-turbo' : allowedValues[0];
+        }
+    } else if (currentProvider === 'anthropic') {
+        if (!desired || !allowedValues.includes(desired)) {
+            desired = allowedValues.includes('claude-3-haiku-20240307') ? 'claude-3-haiku-20240307' : allowedValues[0];
+        }
+    } else if (currentProvider === 'huggingface') {
+        if (!desired || allowedValues.includes(desired) === false) {
+            desired = allowedValues[0];
+        }
     }
+
+    modelSelect.value = desired;
+    this.settings.aiModel = modelSelect.value;
 }
 
     // ZMIANA: Zaktualizowano `testAIConnection` o opcję 'huggingface'
     async testAIConnection() {
-    console.log('Kliknięto test AI!');
+    
     const testBtn = document.getElementById('test-ai-connection');
     const originalText = testBtn.textContent;
     

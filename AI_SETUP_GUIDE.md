@@ -28,10 +28,10 @@ Aplikacja obsługuje trzech głównych dostawców AI:
 - **Jak uzyskać klucz**: https://console.anthropic.com/
 
 #### Google (Gemini)
-- **Modele**: Gemini Pro, Gemini Pro Vision
-- **Zalety**: Darmowy limit, dobra integracja z Google
-- **Koszt**: Darmowy limit, potem płatny
-- **Jak uzyskać klucz**: https://makersuite.google.com/app/apikey
+- Modele: Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.5 Flash-Lite (najnowsza generacja)
+- Zalety: Bardzo szybka i niedroga opcja (Flash), wysoka jakość (Pro), darmowe limity startowe
+- Koszt: Darmowy limit startowy, następnie pay‑as‑you‑go
+- Jak uzyskać klucz: https://aistudio.google.com/app/apikey
 
 ### Krok 2: Uzyskanie klucza API
 
@@ -48,9 +48,9 @@ Aplikacja obsługuje trzech głównych dostawców AI:
 4. Skopiuj klucz
 
 #### Dla Google Gemini:
-1. Przejdź do https://makersuite.google.com/app/apikey
+1. Przejdź do https://aistudio.google.com/app/apikey
 2. Zaloguj się kontem Google
-3. Utwórz nowy klucz API
+3. Utwórz nowy klucz API (Google AI Studio)
 4. Skopiuj klucz
 
 ### Krok 3: Konfiguracja w aplikacji
@@ -99,7 +99,7 @@ System śledzi:
 1. Zacznij od GPT-3.5 Turbo (tańszy niż GPT-4)
 2. Ustaw rozsądny dzienny cel słów (5-15)
 3. Używaj funkcji testowania połączenia oszczędnie
-4. Rozważ Gemini Pro dla darmowego limitu
+4. Rozważ Gemini 2.5 Flash dla darmowego limitu i szybkości
 
 ## 🔒 Bezpieczeństwo
 
