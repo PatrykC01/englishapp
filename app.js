@@ -1012,8 +1012,8 @@ removeDuplicates() {
         let lastTapTime = 0;
         let lastTapX = 0;
         let lastTapY = 0;
-        const DOUBLE_TAP_MAX_DELAY = 300; // ms
-        const DOUBLE_TAP_MAX_DISTANCE = 20; // px
+        const DOUBLE_TAP_MAX_DELAY = 400; // ms
+        const DOUBLE_TAP_MAX_DISTANCE = 60; // px
 
         // Touch events
         flashcard.addEventListener('touchstart', (e) => {
@@ -1060,7 +1060,7 @@ removeDuplicates() {
             
             // Double-tap to flip (mobile)
             const isInteractive = e.target.closest('button, input, a, select, textarea');
-            const isTap = Math.abs(currentX) < 10 && Math.abs(currentY) < 10;
+            const isTap = Math.abs(currentX) < 18 && Math.abs(currentY) < 18;
             if (!isInteractive && isTap) {
                 const now = Date.now();
                 const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
@@ -1637,7 +1637,7 @@ removeDuplicates() {
             
             // Generujemy unikalny seed na podstawie EN+PL
             const seed = this.hashCode(`${englishWord}|${polishWord || ''}|imgv2`);
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
+            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&nologo=true`;
             AI_IMG_DBG('Fetch Pollinations URL', { imageUrl, prompt, seed });
             
             // Sprawdź czy obrazek się ładuje
