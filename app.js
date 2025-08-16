@@ -334,10 +334,20 @@ removeDuplicates() {
         });
 
         // Flashcards
-        document.querySelector('.flip-btn').addEventListener('click', () => {
+        // Debounce quick successive taps on the flip button to avoid double-toggle on mobile
+this._lastFlipBtnClick = 0;
+document.querySelector('.flip-btn').addEventListener('click', (e) => {
+            const now = Date.now();
+            if (now - this._lastFlipBtnClick < 350) {
+                // ignore rapid second tap
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            this._lastFlipBtnClick = now;
             this.userInteracted = true;
             this.flipCard();
-        });
+        }, { passive: false });
 
         // Przykłady (fiszki)
         const toggleBtn = document.getElementById('toggle-examples');
@@ -1012,7 +1022,7 @@ removeDuplicates() {
         let lastTapTime = 0;
         let lastTapX = 0;
         let lastTapY = 0;
-        const DOUBLE_TAP_MAX_DELAY = 400; // ms
+        const DOUBLE_TAP_MAX_DELAY = 500; // ms (more forgiving on mobile)
         const DOUBLE_TAP_MAX_DISTANCE = 60; // px
 
         // Touch events
@@ -1062,6 +1072,10 @@ removeDuplicates() {
             const isInteractive = e.target.closest('button, input, a, select, textarea');
             const isTap = Math.abs(currentX) < 18 && Math.abs(currentY) < 18;
             if (!isInteractive && isTap) {
+                // Prevent ghost click/dblclick on mobile that could toggle twice
+                if (typeof e.preventDefault === 'function') e.preventDefault();
+                if (typeof e.stopPropagation === 'function') e.stopPropagation();
+
                 const now = Date.now();
                 const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
                 const tapX = touch ? touch.clientX : startX;
@@ -1156,14 +1170,17 @@ removeDuplicates() {
             }
         });
 
-        // Double-click to flip (desktop)
-        flashcard.addEventListener('dblclick', (e) => {
-            if (this.currentMode !== 'flashcards') return;
-            const isInteractive = e.target.closest('button, input, a, select, textarea');
-            if (!isInteractive) {
-                this.flipCard();
-            }
-        });
+        // Double-click to flip (desktop only)
+        const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        if (!isCoarsePointer && !this.isMobileDevice()) {
+            flashcard.addEventListener('dblclick', (e) => {
+                if (this.currentMode !== 'flashcards') return;
+                const isInteractive = e.target.closest('button, input, a, select, textarea');
+                if (!isInteractive) {
+                    this.flipCard();
+                }
+            });
+        }
 
         document.addEventListener('mouseup', (e) => {
             if (!isDragging || this.currentMode !== 'flashcards') return;

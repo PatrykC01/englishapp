@@ -248,7 +248,11 @@ html { overflow-x: hidden; }
 }
 
 /* Flashcards */
-.flashcard {
+.flashcard { 
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
     position: relative; /* ensure transforms don't resize layout */
     will-change: transform; /* prepare for transform animations */
     position: relative; /* ensure transforms don't resize layout */
