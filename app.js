@@ -94,6 +94,9 @@ class VocabularyApp {
             enableAIRecommendations: true,
             adaptiveDifficulty: true,
             enableImagen: true,
+            aiImageProvider: 'free',
+            // Base URL for local proxy that calls Google APIs server-side to avoid CORS and hide API keys
+            proxyBaseUrl: '',
             autoFlipEnabled: false,
             autoFlipDelay: 3,
             enableDikiVerification: true, // Nowe ustawienie weryfikacji DIKI
@@ -688,11 +691,50 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         const backWord = document.getElementById('back-word');
         const wordImage = document.getElementById('word-image');
 
+        // Hard reset to avoid back-face flash on new card
+        const frontFace = flashcard.querySelector('.card-front');
+        const backFace = flashcard.querySelector('.card-back');
+
+        // Disable transitions and ensure front-facing immediately
+        flashcard.classList.add('no-anim');
+        if (frontFace) frontFace.style.transition = 'none';
+        if (backFace) backFace.style.transition = 'none';
+        flashcard.style.transition = 'none';
+
+        // Ensure base visual state and show front
+        flashcard.classList.remove('flipped');
+        if (frontFace) frontFace.style.transform = 'rotateY(0deg)';
+        if (backFace) backFace.style.transform = 'rotateY(180deg)';
+
+        // Force reflow so browser applies the above instantly
+        void flashcard.offsetWidth;
+
+        // Re-enable animations in the next frames
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (frontFace) frontFace.style.transition = '';
+                if (backFace) backFace.style.transition = '';
+                flashcard.style.transition = '';
+                if (frontFace) frontFace.style.transform = '';
+                if (backFace) backFace.style.transform = '';
+                flashcard.classList.remove('no-anim');
+            });
+        });
+
         // Reset visual state in case previous card slid out
         flashcard.style.transition = '';
         flashcard.style.transform = 'translateX(0) rotate(0deg)';
         flashcard.style.opacity = '1';
         flashcard.style.borderColor = 'transparent';
+
+        // Trigger gentle appear animation for new word
+        flashcard.classList.remove('appear');
+        // next frame to restart CSS animation reliably
+        requestAnimationFrame(() => {
+            flashcard.classList.add('appear');
+            // remove the class after animation ends to keep DOM clean
+            setTimeout(() => flashcard.classList.remove('appear'), 300);
+        });
         flashcard.classList.remove('flipped');
         frontWord.textContent = word.polish;
         backWord.textContent = word.english;
@@ -1582,31 +1624,52 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
     async loadWordImage(container, englishWord, polishWord) {
         container.style.backgroundImage = '';
         container.textContent = '🖼️';
-        AI_IMG_DBG('loadWordImage start', { englishWord, polishWord });
-        
+        AI_IMG_DBG('loadWordImage start', { englishWord, polishWord, provider: this.settings.aiImageProvider });
+
+        const applyImage = (url) => {
+            const img = new Image();
+            img.onload = () => {
+                container.style.backgroundImage = `url(${url})`;
+                container.textContent = '';
+            };
+            img.onerror = () => {
+                this.loadFallbackImage(container, englishWord, polishWord);
+            };
+            img.src = url;
+        };
+
         try {
-            // Najpierw spróbuj wygenerować obrazek z bezpłatnym AI
-            const aiImageUrl = await this.generateFreeAIImage(englishWord, polishWord);
-            if (aiImageUrl) {
-                const img = new Image();
-                img.onload = () => {
-                    AI_IMG_DBG('Pollinations image loaded OK', { imageUrl: aiImageUrl });
-                    container.style.backgroundImage = `url(${aiImageUrl})`;
-                    container.textContent = '';
-                };
-                img.onerror = () => {
-                    AI_IMG_DBG('Pollinations image error -> fallback', { imageUrl: aiImageUrl });
-                    this.loadFallbackImage(container, englishWord, polishWord);
-                };
-                img.src = aiImageUrl;
-                return;
+            const provider = this.settings.aiImageProvider || 'free';
+
+            if (provider === 'imagen-4') {
+                if (this.settings.enableImagen && this.supportsImagenServer()) {
+                    const url = await this.generateImageWithImagen4(englishWord, polishWord);
+                    if (url) return applyImage(url);
+                }
+                // fallback do free
+                const freeUrl = await this.generateFreeAIImage(englishWord, polishWord);
+                if (freeUrl) return applyImage(freeUrl);
+                return this.loadFallbackImage(container, englishWord, polishWord);
             }
+
+            if (provider === 'gemini-flash-preview') {
+                if (this.settings.aiApiKey || this.supportsImagenServer()) {
+                    const url = await this.generateImageWithGeminiFlashPreview(englishWord, polishWord);
+                    if (url) return applyImage(url);
+                }
+                const freeUrl = await this.generateFreeAIImage(englishWord, polishWord);
+                if (freeUrl) return applyImage(freeUrl);
+                return this.loadFallbackImage(container, englishWord, polishWord);
+            }
+
+            // default: free provider
+            const aiImageUrl = await this.generateFreeAIImage(englishWord, polishWord);
+            if (aiImageUrl) return applyImage(aiImageUrl);
+            return this.loadFallbackImage(container, englishWord, polishWord);
         } catch (error) {
             console.warn('Błąd generowania obrazu z AI:', error);
+            this.loadFallbackImage(container, englishWord, polishWord);
         }
-        
-        // Fallback do innych serwisów
-        this.loadFallbackImage(container, englishWord, polishWord);
     }
 
     // Definition helper for image prompts
@@ -1673,38 +1736,49 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         }
     }
 
-    async generateImageWithImagen(word) {
+    // Imagen 4 (zamiast Imagen 3)
+    async generateImageWithImagen4(englishWord, polishWord) {
         try {
-            const prompt = `A simple, clear illustration of ${word}, clean white background, flat vector, clipart style, no text, no words, no letters, no captions, no watermark, label-free, pictorial only`;
-            
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateImage?key=${this.settings.aiApiKey}`, {
+            if (!this.supportsImagenServer()) return null;
+            const sense = await this.getImageSenseText(englishWord, polishWord);
+            const prompt = `A simple, clear illustration of ${englishWord} (${sense}), clean white background, flat vector, clipart style, no text, no words, no letters, no captions, no watermark, label-free, pictorial only`;
+
+            const url = `${this.settings.proxyBaseUrl || ''}/api/imagen4`;
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...(this.settings.aiApiKey ? { 'x-api-key': this.settings.aiApiKey } : {})
                 },
                 body: JSON.stringify({
-                    prompt: prompt,
+                    prompt,
                     config: {
                         numberOfImages: 1,
-                        aspectRatio: "1:1",
-                        safetyFilterLevel: "BLOCK_ONLY_HIGH",
-                        personGeneration: "DONT_ALLOW"
+                        aspectRatio: '1:1',
+                        safetyFilterLevel: 'BLOCK_ONLY_HIGH',
+                        personGeneration: 'DONT_ALLOW'
                     }
                 })
             });
 
+            if (response.status === 429) {
+                console.warn('Imagen proxy rate limited (429).');
+                return null; // trigger fallback
+            }
             if (!response.ok) {
-                throw new Error(`Imagen API error: ${response.status}`);
+                const text = await response.text().catch(() => '');
+                throw new Error(`Imagen proxy error: ${response.status} ${text}`);
             }
 
             const data = await response.json();
-            if (data.generatedImages && data.generatedImages[0]) {
-                // Convert base64 to blob URL
-                const base64Data = data.generatedImages[0].bytesBase64Encoded;
-                const blob = this.base64ToBlob(base64Data, 'image/png');
+            const base64Data = data?.base64;
+            if (base64Data) {
+                const blob = this.base64ToBlob(base64Data, data?.mime || 'image/png');
                 return URL.createObjectURL(blob);
             }
-            
+            if (data?.url) {
+                return data.url;
+            }
             return null;
         } catch (error) {
             console.error('Imagen generation failed:', error);
@@ -1720,6 +1794,15 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         }
         const byteArray = new Uint8Array(byteNumbers);
         return new Blob([byteArray], { type: mimeType });
+    }
+
+    // Czy dostępny jest serwer proxy do Imagen/Gemini (dla statycznych hostingów zwykle false)
+    supportsImagenServer() {
+        try {
+            return !!(this.settings && this.settings.proxyBaseUrl && /^https?:\/\//.test(this.settings.proxyBaseUrl));
+        } catch (_) {
+            return false;
+        }
     }
 
     async loadFallbackImage(container, englishWord, polishWord) {
@@ -1768,6 +1851,82 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
                 setTimeout(() => resolve(null), 10000);
             });
         } catch (error) {
+            return null;
+        }
+    }
+
+    // Gemini 2.5 Flash Image Preview
+    async generateImageWithGeminiFlashPreview(englishWord, polishWord) {
+        try {
+            const sense = await this.getImageSenseText(englishWord, polishWord);
+            const prompt = `${englishWord} (${sense}). Simple, clear preview illustration, white background, flat, no text, no watermark`;
+            const model = 'gemini-2.5-flash-image-preview';
+
+            // If proxy available, prefer it (keeps key server-side)
+            if (this.supportsImagenServer()) {
+                const url = `${this.settings.proxyBaseUrl || ''}/api/gemini/flash-preview`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(this.settings.aiApiKey ? { 'x-api-key': this.settings.aiApiKey } : {})
+                    },
+                    body: JSON.stringify({ prompt, model, generationConfig: { responseMimeType: 'application/json' } })
+                });
+                if (response.status === 429) {
+                    console.warn('Gemini proxy rate limited (429).');
+                    return null;
+                }
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    throw new Error(`Gemini Flash Preview proxy error: ${response.status} ${text}`);
+                }
+                const data = await response.json();
+                if (data?.base64) {
+                    const blob = this.base64ToBlob(data.base64, data?.mime || 'image/png');
+                    return URL.createObjectURL(blob);
+                }
+                if (data?.url) return data.url;
+                return null;
+            }
+
+            // Fallback: direct browser call to Google API (CORS usually allowed for generateContent). Note: exposes API key.
+            if (!this.settings.aiApiKey) return null;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.settings.aiApiKey)}`;
+
+            const doRequest = async () => {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } })
+                });
+                return r;
+            };
+
+            let response = await doRequest();
+            if (response.status === 429) {
+                // simple backoff once
+                await new Promise(res => setTimeout(res, 800));
+                response = await doRequest();
+            }
+            if (!response.ok) {
+                const text = await response.text().catch(() => '');
+                throw new Error(`Gemini Flash Preview error: ${response.status} ${text}`);
+            }
+            const data = await response.json();
+            const parts = data?.candidates?.[0]?.content?.parts || [];
+            const imgPart = parts.find(p => p.inlineData && p.inlineData.mimeType && p.inlineData.data);
+            if (imgPart && imgPart.inlineData) {
+                const mime = imgPart.inlineData.mimeType || 'image/png';
+                const base64 = imgPart.inlineData.data;
+                const blob = this.base64ToBlob(base64, mime);
+                return URL.createObjectURL(blob);
+            }
+            const linkPart = parts.find(p => typeof p.text === 'string' && p.text.startsWith('http'));
+            if (linkPart) return linkPart.text.trim();
+            return null;
+        } catch (e) {
+            console.warn('generateImageWithGeminiFlashPreview failed', e);
             return null;
         }
     }
@@ -3356,6 +3515,30 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         }
         
         // AI settings
+        const imageProviderSelect = document.getElementById('ai-image-provider');
+        if (imageProviderSelect) {
+            // Disable Google-based image providers when no proxy is available (static hosting)
+            const imagenOpt = imageProviderSelect.querySelector('option[value="imagen-4"]');
+            const flashOpt = imageProviderSelect.querySelector('option[value="gemini-flash-preview"]');
+            const proxyAvailable = this.supportsImagenServer();
+            if (!proxyAvailable) {
+                if (imagenOpt) { imagenOpt.disabled = true; imagenOpt.textContent = 'Imagen 4 (wymaga serwera)'; }
+                if (flashOpt) { flashOpt.disabled = true; flashOpt.textContent = 'Gemini 2.5 Flash Preview (wymaga serwera)'; }
+                if (this.settings.aiImageProvider === 'imagen-4' || this.settings.aiImageProvider === 'gemini-flash-preview') {
+                    this.settings.aiImageProvider = 'free';
+                    this.saveData();
+                }
+            } else {
+                if (imagenOpt) { imagenOpt.disabled = false; imagenOpt.textContent = 'Imagen 4 (HQ)'; }
+                if (flashOpt) { flashOpt.disabled = false; flashOpt.textContent = 'Gemini 2.5 Flash Image Preview (szybki)'; }
+            }
+
+            imageProviderSelect.value = this.settings.aiImageProvider || 'free';
+            imageProviderSelect.addEventListener('change', (e) => {
+                this.settings.aiImageProvider = e.target.value;
+                this.saveData();
+            });
+        }
         document.getElementById('ai-provider').value = this.settings.aiProvider;
         document.getElementById('ai-api-key').value = this.settings.aiApiKey;
         document.getElementById('ai-model').value = this.settings.aiModel;

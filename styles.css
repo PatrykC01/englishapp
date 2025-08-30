@@ -248,6 +248,11 @@ html { overflow-x: hidden; }
 }
 
 /* Flashcards */
+/* Wyłączenie przejściowych animacji flipu na czas resetu karty */
+.flashcard.no-anim .card-front,
+.flashcard.no-anim .card-back {
+  transition: none !important;
+}
 .flashcard { 
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
@@ -390,6 +395,30 @@ html { overflow-x: hidden; }
 
 .btn-correct:hover {
     background: #40c057;
+}
+
+/* Flip flicker fixes */
+.card-front, .card-back {
+  -webkit-backface-visibility: hidden;
+  -webkit-transform-style: preserve-3d;
+  will-change: transform;
+}
+.card-back { transform: rotateY(180deg) translateZ(0); }
+.flashcard.flipped .card-front { transform: rotateY(180deg) translateZ(0); }
+.flashcard.flipped .card-back { transform: rotateY(0deg) translateZ(0); }
+.flashcard.no-anim .card-back { visibility: hidden; }
+.flashcard.no-anim .card-front { visibility: visible; }
+
+/* New word appear animation */
+@keyframes flashcardEnter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.flashcard.appear {
+  animation: flashcardEnter 240ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flashcard.appear { animation: none; }
 }
 
 /* Typing Mode */
