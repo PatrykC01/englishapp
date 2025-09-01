@@ -319,9 +319,11 @@
                             </select>
                         </label>
                         
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="enable-diki-verification" checked>
-                            <span>📚 Weryfikuj tłumaczenia AI ze słownikiem DIKI</span>
+
+                        <label>
+                            Adres proxy (opcjonalnie):
+                            <input type="text" id="proxy-base-url" placeholder="http://localhost:3000">
+                            <small style="display:block;color:#666;margin-top:5px;">Używane do serwowania obrazów (i Google Imagen/Gemini). Uruchom server.js i wpisz np. http://localhost:3000</small>
                         </label>
                         
                         <button id="test-ai-connection" class="btn-secondary">🔍 Testuj połączenie AI</button>

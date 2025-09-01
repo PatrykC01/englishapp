@@ -64,6 +64,12 @@ class VocabularyApp {
     }
     constructor() {
         this.imagePromptCache = {};
+        this.imageUrlCache = {}; // cache resolved image URLs per word
+        this._prefetchTimer = null;
+        this._prefetchInFlight = new Set();
+        this._imageRetryTimers = {};
+        this._nextWordTimer = null; // ensure only one nextWord timer at a time
+        this._answerLocked = false; // prevent double answer handling in typing mode
         this.words = [];
         this.currentStudySet = [];
         this.currentWordIndex = 0;
@@ -99,7 +105,8 @@ class VocabularyApp {
             proxyBaseUrl: '',
             autoFlipEnabled: false,
             autoFlipDelay: 3,
-            enableDikiVerification: true, // Nowe ustawienie weryfikacji DIKI
+            // enableDikiVerification: true, // (removed) weryfikacja DIKI nieużywana
+            enableAISelfCheck: true, // Samokontrola tłumaczenia przez AI
             flashcardAnimMs: 1000
         };
         
@@ -547,10 +554,17 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
             this.saveData();
         });
 
-        document.getElementById('enable-diki-verification').addEventListener('change', (e) => {
-            this.settings.enableDikiVerification = e.target.checked;
-            this.saveData();
-        });
+        
+
+        // Proxy base URL setting
+        const proxyInput = document.getElementById('proxy-base-url');
+        if (proxyInput) {
+            proxyInput.value = this.settings.proxyBaseUrl || '';
+            proxyInput.addEventListener('change', (e) => {
+                this.settings.proxyBaseUrl = e.target.value.trim();
+                this.saveData();
+            });
+        }
 
         document.getElementById('test-ai-connection').addEventListener('click', () => {
             this.testAIConnection();
@@ -745,6 +759,8 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         this.setDifficultyBorder(flashcard, word);
         
         this.loadWordImage(wordImage, word.english, word.polish);
+        // Prefetch next images to speed up navigation
+        this.prefetchNextImages(3);
         
         // Auto-flip jeśli włączony
         this.setupAutoFlip();
@@ -810,6 +826,12 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
 
     // Typing Mode
     loadTyping(word) {
+        // Reset any pending next-word timer when a new word loads
+        if (this._nextWordTimer) {
+            clearTimeout(this._nextWordTimer);
+            this._nextWordTimer = null;
+        }
+        this._answerLocked = false;
         const polishWord = document.getElementById('polish-word');
         const answerInput = document.getElementById('answer-input');
         const feedback = document.getElementById('feedback');
@@ -825,6 +847,8 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
     }
 
     checkTypingAnswer() {
+        if (this._answerLocked) return;
+        this._answerLocked = true;
         const word = this.currentStudySet[this.currentWordIndex];
         const userAnswer = document.getElementById('answer-input').value.trim().toLowerCase();
         const correctAnswer = word.english.toLowerCase();
@@ -841,10 +865,6 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         }
 
         this.recordAnswer(isCorrect);
-        
-        setTimeout(() => {
-            this.nextWord();
-        }, 2000);
     }
 
     // Listening Mode
@@ -1622,14 +1642,42 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
 
     // Word Image Loading
     async loadWordImage(container, englishWord, polishWord) {
+        // Cache hit: reuse already resolved URL
+        const cacheKey = `${englishWord.toLowerCase()}|${(polishWord||'').toLowerCase()}`;
+        if (this.imageUrlCache[cacheKey]) {
+            const url = this.imageUrlCache[cacheKey];
+            const img = new Image();
+            img.onload = () => {
+                container.style.backgroundImage = `url(${url})`;
+                container.textContent = '';
+            };
+            img.onerror = () => { /* If cached URL fails now, try full flow again */ this._loadWordImageFlow(container, englishWord, polishWord, cacheKey); };
+            img.src = url;
+            return;
+        }
+        return this._loadWordImageFlow(container, englishWord, polishWord, cacheKey);
+    }
+
+    async _loadWordImageFlow(container, englishWord, polishWord, cacheKey) {
         container.style.backgroundImage = '';
         container.textContent = '🖼️';
         AI_IMG_DBG('loadWordImage start', { englishWord, polishWord, provider: this.settings.aiImageProvider });
 
+        const proxify = (url) => {
+            try {
+                const base = (this.settings.proxyBaseUrl || '').replace(/\/$/, '');
+                if (base && /^https?:\/\//.test(base)) {
+                    return `${base}/api/proxy-image?url=${encodeURIComponent(url)}`;
+                }
+            } catch (_) {}
+            return url;
+        };
+
         const applyImage = (url) => {
             const img = new Image();
+            const finalUrl = proxify(url);
             img.onload = () => {
-                container.style.backgroundImage = `url(${url})`;
+                container.style.backgroundImage = `url(${finalUrl})`;
                 container.textContent = '';
             };
             img.onerror = () => {
@@ -1664,13 +1712,66 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
 
             // default: free provider
             const aiImageUrl = await this.generateFreeAIImage(englishWord, polishWord);
-            if (aiImageUrl) return applyImage(aiImageUrl);
+            if (aiImageUrl) { this.imageUrlCache[cacheKey] = aiImageUrl; return applyImage(aiImageUrl); }
             return this.loadFallbackImage(container, englishWord, polishWord);
         } catch (error) {
             console.warn('Błąd generowania obrazu z AI:', error);
             this.loadFallbackImage(container, englishWord, polishWord);
         }
     }
+
+   // Prefetch upcoming images to speed up next flashcards
+   prefetchNextImages(count = 3) {
+       try {
+           if (!Array.isArray(this.currentStudySet) || this.currentStudySet.length === 0) return;
+           const start = Math.max(0, (this.currentWordIndex || 0) + 1);
+           const end = Math.min(this.currentStudySet.length, start + Math.max(0, count|0));
+           clearTimeout(this._prefetchTimer);
+           this._prefetchTimer = setTimeout(() => {
+               for (let i = start; i < end; i++) {
+                   const w = this.currentStudySet[i];
+                   if (w) this.prefetchImageForWord(w);
+               }
+           }, 50);
+       } catch (_) {}
+   }
+
+   async prefetchImageForWord(word) {
+       try {
+           const english = String(word.english || '').trim();
+           const polish = String(word.polish || '').trim();
+           const key = `${english.toLowerCase()}|${polish.toLowerCase()}`;
+           if (!english || this.imageUrlCache[key] || this._prefetchInFlight.has(key)) return;
+           this._prefetchInFlight.add(key);
+
+           const warm = (url) => {
+               if (!url) return;
+               // warm browser cache via proxy if configured
+               const base = (this.settings.proxyBaseUrl || '').replace(/\/$/, '');
+               const warmUrl = (base && /^https?:\/\//.test(base))
+                   ? `${base}/api/proxy-image?url=${encodeURIComponent(url)}`
+                   : url;
+               try {
+                   const img = new Image();
+                   img.src = warmUrl;
+               } catch (_) {}
+           };
+
+           // Prefer Pollinations (free)
+           let url = await this.generateFreeAIImage(english, polish);
+           if (!url) url = await this.generateHuggingFaceImage(english, polish);
+           if (!url) url = await this.generateUnsplashImage(english, polish);
+
+           if (url) {
+               this.imageUrlCache[key] = url;
+               warm(url);
+           }
+       } catch (_) {
+           // ignore prefetch errors
+       } finally {
+           try { this._prefetchInFlight.delete(`${String(word.english||'').toLowerCase()}|${String(word.polish||'').toLowerCase()}`); } catch (_) {}
+       }
+   }
 
     // Definition helper for image prompts
     async getImageSenseText(englishWord, polishWord) {
@@ -1717,19 +1818,18 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
             
             // Generujemy unikalny seed na podstawie EN+PL
             const seed = this.hashCode(`${englishWord}|${polishWord || ''}|imgv2`);
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&nologo=true`;
-            AI_IMG_DBG('Fetch Pollinations URL', { imageUrl, prompt, seed });
-            
-            // Sprawdź czy obrazek się ładuje
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve(imageUrl);
-                img.onerror = () => resolve(null);
-                img.src = imageUrl;
-                
-                // Timeout po 5 sekundach
-                setTimeout(() => resolve(null), 10000);
-            });
+            const defaultUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
+            AI_IMG_DBG('Fetch Pollinations URL', { imageUrl: defaultUrl, prompt, seed });
+            const okDefault = await this.tryLoadImage(defaultUrl, 8000);
+            if (okDefault) return okDefault;
+
+            // Jeśli standardowy backend nie działa, spróbuj model=flux jako alternatywy
+            const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
+            AI_IMG_DBG('Fetch Pollinations Flux URL', { imageUrl: fluxUrl, prompt, seed });
+            const okFlux = await this.tryLoadImage(fluxUrl, 8000);
+            if (okFlux) return okFlux;
+
+            return null;
         } catch (error) {
             console.error('Błąd generowania obrazu z Pollinations:', error);
             return null;
@@ -1807,7 +1907,7 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
 
     async loadFallbackImage(container, englishWord, polishWord) {
         try {
-            // Spróbuj drugi bezpłatny serwis AI - Hugging Face
+            // Spróbuj drugi bezpłatny serwis AI - Hugging Face (Pollinations alt)
             const hfImageUrl = await this.generateHuggingFaceImage(englishWord, polishWord);
             if (hfImageUrl) {
                 const img = new Image();
@@ -1815,8 +1915,15 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
                     container.style.backgroundImage = `url(${hfImageUrl})`;
                     container.textContent = '';
                 };
-                img.onerror = () => {
-                    this.loadIconImage(container, englishWord);
+                img.onerror = async () => {
+                    // Jeśli alt Pollinations padł, spróbuj Unsplash Source API
+                    const unsplashUrl = await this.generateUnsplashImage(englishWord, polishWord);
+                    if (unsplashUrl) {
+                        container.style.backgroundImage = `url(${unsplashUrl})`;
+                        container.textContent = '';
+                    } else {
+                        this.loadIconImage(container, englishWord);
+                    }
                 };
                 img.src = hfImageUrl;
                 return;
@@ -1824,13 +1931,77 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         } catch (error) {
             console.warn('Błąd generowania obrazu z Hugging Face:', error);
         }
+
+        // Trzeci fallback: Unsplash Source (bez klucza)
+        try {
+            const unsplashUrl = await this.generateUnsplashImage(englishWord, polishWord);
+            if (unsplashUrl) {
+                container.style.backgroundImage = `url(${unsplashUrl})`;
+                container.textContent = '';
+                return;
+            }
+        } catch (e) {
+            console.warn('Unsplash fallback failed:', e);
+        }
         
         // Ostateczny fallback - ikony i emoji
         this.loadIconImage(container, englishWord);
     }
 
-    // Drugi serwis AI - prostszy prompt
-    async generateHuggingFaceImage(englishWord, polishWord) {
+    // Helper: try to load an image URL with timeout; resolve(url) on success else null
+    async tryLoadImage(url, timeoutMs = 8000) {
+        // Try via proxy (if configured) first to bypass adblock/CORS, but always return the original URL on success
+        const buildProxy = (u) => {
+            try {
+                const base = (this.settings.proxyBaseUrl || '').replace(/\/$/, '');
+                if (base && /^https?:\/\//.test(base)) {
+                    return `${base}/api/proxy-image?url=${encodeURIComponent(u)}`;
+                }
+            } catch (_) {}
+            return null;
+        };
+        const candidates = [];
+        const viaProxy = buildProxy(url);
+        if (viaProxy) candidates.push({ testUrl: viaProxy, retUrl: url });
+        candidates.push({ testUrl: url, retUrl: url });
+
+        for (const c of candidates) {
+            const ok = await new Promise((resolve) => {
+                try {
+                    const img = new Image();
+                    let done = false;
+                    const t = setTimeout(() => {
+                        if (done) return;
+                        done = true;
+                        resolve(false);
+                    }, timeoutMs);
+                    img.onload = () => {
+                        if (done) return;
+                        done = true;
+                        clearTimeout(t);
+                        resolve(true);
+                    };
+                    img.onerror = () => {
+                        if (done) return;
+                        done = true;
+                        clearTimeout(t);
+                        resolve(false);
+                    };
+                    img.src = c.testUrl;
+                } catch (_) {
+                    resolve(false);
+                }
+            });
+            if (ok) return c.retUrl;
+        }
+        return null;
+    }
+
+    // Fallback generator bez klucza: Pollinations (default -> flux), a na końcu Unsplash
+    async generateHuggingFaceImage(englishWord, polishWord) { // returns URL or null (disabled fallback per user)
+        return null;
+        // Try standard Pollinations first; if not available, try flux as fallback
+
         try {
             // Użyj tej samej strategii rozstrzygania znaczeń jak w głównym generatorze
             const sense = await this.getImageSenseText(englishWord, polishWord);
@@ -1839,18 +2010,51 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
             const encodedPrompt = encodeURIComponent(prompt);
             const seed = this.hashCode(`${englishWord}|${polishWord || ''}|iconv1`);
             
-            // Alternatywne wywołanie generatora obrazów (Pollinations - model flux)
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
-            AI_IMG_DBG('Fetch HF(Flux) URL', { imageUrl, prompt, seed });
-            
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve(imageUrl);
-                img.onerror = () => resolve(null);
-                img.src = imageUrl;
-                setTimeout(() => resolve(null), 10000);
-            });
+            // First try default Pollinations (no flux)
+            const defaultUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
+            AI_IMG_DBG('Try HF default URL', { defaultUrl, prompt, seed });
+            const okDefault = await this.tryLoadImage(defaultUrl, 8000);
+            if (okDefault) return okDefault;
+
+            // If default unavailable, try flux backend
+            const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
+            AI_IMG_DBG('Try HF flux URL', { fluxUrl, prompt, seed });
+            const okFlux = await this.tryLoadImage(fluxUrl, 8000);
+            if (okFlux) return okFlux;
+
+            // Lastly, try Unsplash Source API as a generic photo fallback (no API key)
+            const unsplash = await this.generateUnsplashImage(englishWord, polishWord);
+            if (unsplash) return unsplash;
+
+            return null;
         } catch (error) {
+            return null;
+        }
+    }
+
+    // Generic photo fallback: Unsplash Source API then Picsum (no API keys)
+    async generateUnsplashImage(englishWord, polishWord) { // disabled per user
+        return null;
+        try {
+            // Build a simple, likely-to-exist query
+            const cleaned = String(englishWord || '').replace(/[^a-zA-Z\s]/g, ' ').trim();
+            const tokens = cleaned.split(/\s+/).filter(Boolean);
+            const primary = tokens.length > 1 ? tokens[tokens.length - 1] : (tokens[0] || 'object');
+            const query = encodeURIComponent(`${primary},time,illustration`);
+
+            // Unsplash Source will 302 to a concrete image URL
+            const url = `https://source.unsplash.com/featured/${AI_IMAGE_MIN_DIM}x${AI_IMAGE_MIN_DIM}?${query}`;
+            const ok = await this.tryLoadImage(url, 7000);
+            if (ok) return ok;
+
+            // Picsum placeholder as a last resort photo
+            const seed = this.hashCode(`${englishWord}|${polishWord || ''}|unsplash`);
+            const picsum = `https://picsum.photos/seed/${seed}/${AI_IMAGE_MIN_DIM}/${AI_IMAGE_MIN_DIM}`;
+            const ok2 = await this.tryLoadImage(picsum, 5000);
+            if (ok2) return ok2;
+
+            return null;
+        } catch (_) {
             return null;
         }
     }
@@ -2062,7 +2266,9 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         this.saveData();
 
         if (this.currentMode !== 'match' && this.currentMode !== 'listening') {
-            setTimeout(() => {
+            if (this._nextWordTimer) clearTimeout(this._nextWordTimer);
+            this._nextWordTimer = setTimeout(() => {
+                this._nextWordTimer = null;
                 this.nextWord();
             }, 2000);
         }
@@ -2563,7 +2769,15 @@ Odpowiedź (tylko nazwa kategorii):`;
     const category = await this.selectOptimalCategory();
     
     try {
-        const newWords = await this.getWordsFromAI(category, this.settings.languageLevel, count);
+       let newWords = await this.getWordsFromAI(category, this.settings.languageLevel, count);
+       // AI self-check of translations to catch semantic mismatches
+       if (this.settings.enableAISelfCheck && this.settings.aiProvider !== 'free' && this.settings.aiApiKey) {
+           try {
+               newWords = await this.selfCheckAndFixTranslations(newWords);
+           } catch (e) {
+               console.warn('AI self-check failed, using original words:', e);
+           }
+       }
         
         // Ulepszone filtrowanie duplikatów
         const existingKeys = new Set(
@@ -2630,6 +2844,8 @@ Odpowiedź (tylko nazwa kategorii):`;
 
     // ZMIANA: Zaktualizowano `getWordsFromAI` o opcję 'huggingface'
 async getWordsFromAI(category, level, count) {
+   // Note: downstream may run selfCheckAndFixTranslations if enabled
+
     // Obsługa trybu darmowego bez klucza API
     if (this.settings.aiProvider === 'free') {
         return await this.getFreeAIWords(category, level, count);
@@ -3034,6 +3250,56 @@ GUARDY PRZECIW BŁĘDOM:
 
         const data = await response.json();
         return data.content[0].text;
+    }
+
+    // Ask the selected AI provider to validate/fix EN↔PL mapping
+    async selfCheckAndFixTranslations(words) {
+        try {
+            if (!Array.isArray(words) || words.length === 0) return words;
+            const examples = words.slice(0, 20).map(w => ({ polish: w.polish, english: w.english }));
+            const instruction = `You are a bilingual lexicographer. Validate that each English word truly matches the Polish meaning (same sense). Return JSON array with items: {polish, english, fixedEnglish, verdict}. Rules:
+- verdict = "ok" if match is semantically correct;
+- verdict = "fix" if the English term is wrong/too broad/wrong sense; then provide fixedEnglish with the best single-word or short multi-word alternative that matches the Polish meaning used in everyday language.
+- If multiple senses exist, pick the sense that corresponds to the Polish term (like a dictionary headword). Avoid paraphrases unless necessary.`;
+            const payload = JSON.stringify(examples);
+            const prompt = `${instruction}\n\nDATA:\n${payload}\n\nReturn ONLY JSON array.`;
+
+            let respText = '';
+            switch (this.settings.aiProvider) {
+                case 'openai': respText = await this.callOpenAI(prompt); break;
+                case 'anthropic': respText = await this.callAnthropic(prompt); break;
+                case 'gemini': respText = await this.callGemini(prompt); break;
+                default: return words;
+            }
+            const checked = await this.parseAIResponse(respText, 'inne');
+            // parseAIResponse returns our internal shape; map back only the fixes
+            const fixesByPl = new Map();
+            try {
+                const raw = JSON.parse(String(respText).replace(/```json|```/g, ''));
+                if (Array.isArray(raw)) {
+                    raw.forEach(item => {
+                        if (item && typeof item === 'object' && item.polish && item.fixedEnglish && item.verdict) {
+                            fixesByPl.set(String(item.polish).trim().toLowerCase(), {
+                                verdict: String(item.verdict).trim().toLowerCase(),
+                                fixedEnglish: String(item.fixedEnglish).trim()
+                            });
+                        }
+                    });
+                }
+            } catch (_) {}
+
+            return words.map(w => {
+                const k = String(w.polish || '').trim().toLowerCase();
+                const fix = fixesByPl.get(k);
+                if (fix && fix.verdict === 'fix' && fix.fixedEnglish) {
+                    return { ...w, english: fix.fixedEnglish, verified: true };
+                }
+                return w;
+            });
+        } catch (e) {
+            console.warn('selfCheckAndFixTranslations error:', e);
+            return words;
+        }
     }
 
     async callGemini(prompt, options = {}) {
@@ -3516,26 +3782,26 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         
         // AI settings
         const imageProviderSelect = document.getElementById('ai-image-provider');
+        const proxyInput = document.getElementById('proxy-base-url');
+        if (proxyInput) {
+            proxyInput.value = this.settings.proxyBaseUrl || '';
+        }
         if (imageProviderSelect) {
-            // Disable Google-based image providers when no proxy is available (static hosting)
+            // Tymczasowo wyłączamy Imagen 4 i Gemini Flash Preview na życzenie użytkownika
             const imagenOpt = imageProviderSelect.querySelector('option[value="imagen-4"]');
             const flashOpt = imageProviderSelect.querySelector('option[value="gemini-flash-preview"]');
-            const proxyAvailable = this.supportsImagenServer();
-            if (!proxyAvailable) {
-                if (imagenOpt) { imagenOpt.disabled = true; imagenOpt.textContent = 'Imagen 4 (wymaga serwera)'; }
-                if (flashOpt) { flashOpt.disabled = true; flashOpt.textContent = 'Gemini 2.5 Flash Preview (wymaga serwera)'; }
-                if (this.settings.aiImageProvider === 'imagen-4' || this.settings.aiImageProvider === 'gemini-flash-preview') {
-                    this.settings.aiImageProvider = 'free';
-                    this.saveData();
-                }
-            } else {
-                if (imagenOpt) { imagenOpt.disabled = false; imagenOpt.textContent = 'Imagen 4 (HQ)'; }
-                if (flashOpt) { flashOpt.disabled = false; flashOpt.textContent = 'Gemini 2.5 Flash Image Preview (szybki)'; }
+            if (imagenOpt) { imagenOpt.disabled = true; imagenOpt.textContent = 'Imagen 4 (wyłączone)'; }
+            if (flashOpt) { flashOpt.disabled = true; flashOpt.textContent = 'Gemini 2.5 Flash Preview (wyłączone)'; }
+            if (this.settings.aiImageProvider !== 'free') {
+                this.settings.aiImageProvider = 'free';
+                this.saveData();
             }
 
-            imageProviderSelect.value = this.settings.aiImageProvider || 'free';
+            imageProviderSelect.value = 'free';
             imageProviderSelect.addEventListener('change', (e) => {
-                this.settings.aiImageProvider = e.target.value;
+                // Wymuszamy pozostanie przy darmowym providerze
+                imageProviderSelect.value = 'free';
+                this.settings.aiImageProvider = 'free';
                 this.saveData();
             });
         }
