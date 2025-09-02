@@ -849,6 +849,13 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
     checkTypingAnswer() {
         if (this._answerLocked) return;
         this._answerLocked = true;
+
+        // Hide mobile keyboard by removing focus from the input
+        const answerInputEl = document.getElementById('answer-input');
+        if (answerInputEl && typeof answerInputEl.blur === 'function') {
+            answerInputEl.blur();
+        }
+
         const word = this.currentStudySet[this.currentWordIndex];
         const userAnswer = document.getElementById('answer-input').value.trim().toLowerCase();
         const correctAnswer = word.english.toLowerCase();
@@ -863,6 +870,13 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
             feedback.textContent = `Niepoprawnie. Prawidłowa odpowiedź to: ${word.english}`;
             feedback.className = 'feedback incorrect';
         }
+
+        // After keyboard hides, ensure feedback is visible
+        setTimeout(() => {
+            if (typeof feedback.scrollIntoView === 'function') {
+                feedback.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 50);
 
         this.recordAnswer(isCorrect);
     }
@@ -1440,6 +1454,12 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
     }
 
     checkListeningAnswer() {
+        // Hide mobile keyboard by removing focus from the input
+        const listeningInputEl = document.getElementById('listening-input');
+        if (listeningInputEl && typeof listeningInputEl.blur === 'function') {
+            listeningInputEl.blur();
+        }
+
         const word = this.currentStudySet[this.currentWordIndex];
         const userAnswer = document.getElementById('listening-input').value.trim().toLowerCase();
         const correctAnswer = word.polish.toLowerCase();
@@ -1450,6 +1470,13 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         if (isCorrect) {
             feedback.textContent = 'Świetnie! Poprawna odpowiedź.';
             feedback.className = 'feedback correct';
+
+            // After keyboard hides, ensure feedback is visible
+            setTimeout(() => {
+                if (typeof feedback.scrollIntoView === 'function') {
+                    feedback.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 50);
             
             this.recordAnswer(isCorrect);
             
@@ -1459,6 +1486,13 @@ document.querySelector('.flip-btn').addEventListener('click', (e) => {
         } else {
             feedback.textContent = `Niepoprawnie. Prawidłowa odpowiedź to: ${word.polish}`;
             feedback.className = 'feedback incorrect';
+
+            // After keyboard hides, ensure feedback is visible
+            setTimeout(() => {
+                if (typeof feedback.scrollIntoView === 'function') {
+                    feedback.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 50);
             
             this.recordAnswer(isCorrect);
             
