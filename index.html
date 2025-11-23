@@ -329,6 +329,48 @@
                         <button id="test-ai-connection" class="btn-secondary">🔍 Testuj połączenie AI</button>
                     </div>
                     
+                   <div class="setting-group">
+                        <h3>Dodaj własne słowa</h3>
+                        <div class="add-word-form">
+                            <label>
+                                Polskie słowo
+                                <input type="text" id="add-polish" placeholder="np. dom">
+                            </label>
+                            <label>
+                                Angielskie tłumaczenie (opcjonalnie)
+                                <input type="text" id="add-english" placeholder="np. house">
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="add-auto-translate" checked>
+                                <span>Automatycznie przetłumacz, jeśli tłumaczenie niepodane</span>
+                            </label>
+                            <button id="add-word-btn" class="btn-primary">➕ Dodaj słowo</button>
+                            <small style="display:block;color:#666;margin-top:6px;">Wskazówka: możesz wpisać tylko polskie słowo i zaznaczyć automatyczne tłumaczenie.</small>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h3>Wybór zestawu słów do nauki</h3>
+                        <p style="color:#666;margin-bottom:1rem;">Wybierz, które słowa chcesz ćwiczyć podczas sesji nauki:</p>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-custom-only">
+                            <span>📝 Tylko moje słowa (ręcznie dodane)</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-ai-only">
+                            <span>🤖 Tylko słowa wygenerowane przez AI</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-mixed" checked>
+                            <span>🔀 Tryb mieszany (wszystkie słowa)</span>
+                        </label>
+                        <div style="margin-top:1rem;padding:0.75rem;background:#f0f4ff;border-left:3px solid #667eea;border-radius:4px;">
+                            <strong>📊 Statystyki:</strong>
+                            <div id="word-set-stats" style="margin-top:0.5rem;color:#555;"></div>
+<div id="word-set-summary" style="margin-top:0.5rem;color:#333;font-size:0.95rem;"></div>
+                        </div>
+                    </div>
+
                     <div class="setting-group">
                         <h3>Import/Export słów</h3>
                         <input type="file" id="import-file" accept=".csv" style="display: none;">

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test - Usuwanie emoji przed obrazkiem</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-card {
+            width: 300px;
+            height: 200px;
+            margin: 20px auto;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            background-color: #f9f9f9;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover { background: #0056b3; }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .info { background: #e7f3ff; border-left: 4px solid #007bff; }
+        .success { background: #d4edda; color: #155724; font-weight: bold; }
+        h1 { color: #333; }
+        .demo-box {
+            background: #fff3cd;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border-left: 4px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test usuwania emoji</h1>
+        
+        <div class="info status">
+            <strong>Test weryfikuje:</strong><br>
+            Czy emoji ⏳ znika PRZED pokazaniem obrazka<br>
+            (nie powinno być widoczne razem z grafiką)
+        </div>
+
+        <div class="demo-box">
+            <strong>Nowy mechanizm:</strong>
+            <ol>
+                <li>Pokaż emoji ⏳ (ładowanie)</li>
+                <li>Usuń emoji NATYCHMIAST gdy URL gotowy</li>
+                <li>Poczekaj aż obrazek się załaduje</li>
+                <li>Pokaż obrazek (bez emoji!)</li>
+            </ol>
+        </div>
+
+        <button id="testOldWay">Test STARY sposób (problem)</button>
+        <button id="testNewWay">Test NOWY sposób (poprawiony)</button>
+        <button id="reset">Reset</button>
+
+        <div class="test-card" id="testCard">⏳</div>
+        
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const card = document.getElementById('testCard');
+        const statusDiv = document.getElementById('status');
+        
+        // Przykładowy URL obrazka (szybki do załadowania)
+        const imageUrl = 'https://image.pollinations.ai/prompt/a%20cute%20cat%2C%20photo?width=300&height=200&seed=123&model=flux&nologo=true&enhance=false';
+
+        function reset() {
+            card.style.backgroundImage = '';
+            card.textContent = '⏳';
+            card.style.fontSize = '2rem';
+            statusDiv.innerHTML = '';
+        }
+
+        // STARY sposób - pokazuje obrazek zanim usuwa emoji
+        async function testOldWay() {
+            reset();
+            statusDiv.innerHTML = '<div class="info status">⚠️ STARY sposób: Ustaw obrazek → Usuń emoji</div>';
+            
+            setTimeout(() => {
+                // Ustaw obrazek OD RAZU
+                card.style.backgroundImage = `url(${imageUrl})`;
+                
+                // Potem asynchronicznie usuń emoji (może być za późno!)
+                const img = new Image();
+                img.onload = () => {
+                    card.textContent = ''; // Usuń emoji PO załadowaniu
+                    card.style.fontSize = '';
+                    statusDiv.innerHTML = '<div class="success status">⚠️ PROBLEM: Emoji mogło być widoczne razem z obrazkiem przez chwilę!</div>';
+                };
+                img.src = imageUrl;
+            }, 1000);
+        }
+
+        // NOWY sposób - usuwa emoji PRZED pokazaniem obrazka
+        async function testNewWay() {
+            reset();
+            statusDiv.innerHTML = '<div class="info status">✅ NOWY sposób: Usuń emoji → Poczekaj na obrazek → Pokaż obrazek</div>';
+            
+            setTimeout(() => {
+                // NAJPIERW usuń emoji
+                card.textContent = '';
+                card.style.fontSize = '';
+                
+                // POTEM poczekaj aż obrazek się załaduje
+                const img = new Image();
+                img.onload = () => {
+                    // Dopiero teraz pokaż obrazek
+                    card.style.backgroundImage = `url(${imageUrl})`;
+                    card.textContent = ''; // Podwójna pewność
+                    statusDiv.innerHTML = '<div class="success status">✅ SUKCES: Emoji zniknęło PRZED pokazaniem obrazka!</div>';
+                };
+                img.src = imageUrl;
+            }, 1000);
+        }
+
+        document.getElementById('testOldWay').addEventListener('click', testOldWay);
+        document.getElementById('testNewWay').addEventListener('click', testNewWay);
+        document.getElementById('reset').addEventListener('click', reset);
+    </script>
+</body>
+</html>

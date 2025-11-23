@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Pollinations - Szybkie ładowanie</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .image-item {
+            background: #fff;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .image-item img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        .image-item .word {
+            font-weight: bold;
+            margin-top: 10px;
+            color: #333;
+        }
+        .image-item .time {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.loading { background: #fff3cd; color: #856404; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🚀 Test Pollinations AI - Optymalizacja szybkości</h1>
+        <p>Ten test sprawdza jak szybko ładują się obrazy z Pollinations AI z nowymi optymalizacjami:</p>
+        <ul>
+            <li>✅ Krótszy prompt dla szybszego generowania</li>
+            <li>✅ Model flux jako domyślny (szybszy)</li>
+            <li>✅ Zmniejszony timeout do 8s</li>
+            <li>✅ Parametr enhance=false dla wydajności</li>
+            <li>✅ Usunięte niepotrzebne fallbacki (Unsplash, HuggingFace)</li>
+        </ul>
+        <button id="startTest">Rozpocznij Test</button>
+        <div id="status"></div>
+    </div>
+
+    <div id="results" class="image-grid"></div>
+
+    <script>
+        const testWords = [
+            { en: 'cat', pl: 'kot' },
+            { en: 'dog', pl: 'pies' },
+            { en: 'house', pl: 'dom' },
+            { en: 'tree', pl: 'drzewo' },
+            { en: 'car', pl: 'samochód' },
+            { en: 'book', pl: 'książka' }
+        ];
+
+        function hashCode(str) {
+            let h = 0;
+            for (let i = 0; i < str.length; i++) {
+                h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+            }
+            return Math.abs(h);
+        }
+
+        async function testImageLoad(word) {
+            const startTime = Date.now();
+            
+            // Symulacja generowania "sense" - uproszczona wersja
+            const sense = `a ${word.en}`;
+            
+            // Nowy zoptymalizowany prompt
+            const prompt = `${sense}, clear photo, high quality, no text`;
+            const encodedPrompt = encodeURIComponent(prompt);
+            
+            // Seed
+            const seed = hashCode(`${word.en}|${word.pl}|imgv4`);
+            
+            // URL z model=flux (nowa wersja)
+            const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&seed=${seed}&model=flux&nologo=true&enhance=false`;
+            
+            return new Promise((resolve) => {
+                const img = new Image();
+                let done = false;
+                
+                const timeout = setTimeout(() => {
+                    if (done) return;
+                    done = true;
+                    resolve({ 
+                        word, 
+                        url, 
+                        success: false, 
+                        time: Date.now() - startTime,
+                        error: 'timeout'
+                    });
+                }, 8000);
+                
+                img.onload = () => {
+                    if (done) return;
+                    done = true;
+                    clearTimeout(timeout);
+                    resolve({ 
+                        word, 
+                        url, 
+                        success: true, 
+                        time: Date.now() - startTime 
+                    });
+                };
+                
+                img.onerror = () => {
+                    if (done) return;
+                    done = true;
+                    clearTimeout(timeout);
+                    resolve({ 
+                        word, 
+                        url, 
+                        success: false, 
+                        time: Date.now() - startTime,
+                        error: 'load error'
+                    });
+                };
+                
+                img.src = url;
+            });
+        }
+
+        async function runTest() {
+            const btn = document.getElementById('startTest');
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            btn.disabled = true;
+            resultsDiv.innerHTML = '';
+            statusDiv.innerHTML = '<div class="status loading">⏳ Ładowanie obrazów...</div>';
+            
+            const results = [];
+            
+            for (const word of testWords) {
+                const result = await testImageLoad(word);
+                results.push(result);
+                
+                // Wyświetl wynik
+                const item = document.createElement('div');
+                item.className = 'image-item';
+                
+                if (result.success) {
+                    item.innerHTML = `
+                        <img src="${result.url}" alt="${word.en}">
+                        <div class="word">${word.en} / ${word.pl}</div>
+                        <div class="time">✅ Załadowano w ${(result.time / 1000).toFixed(2)}s</div>
+                    `;
+                } else {
+                    item.innerHTML = `
+                        <img src="${result.url}" alt="${word.en}" style="opacity: 0.3;">
+                        <div class="word">${word.en} / ${word.pl}</div>
+                        <div class="time">❌ Błąd: ${result.error} (${(result.time / 1000).toFixed(2)}s)</div>
+                    `;
+                }
+                
+                resultsDiv.appendChild(item);
+            }
+            
+            // Podsumowanie
+            const successful = results.filter(r => r.success).length;
+            const avgTime = results.filter(r => r.success).reduce((sum, r) => sum + r.time, 0) / successful;
+            
+            if (successful === testWords.length) {
+                statusDiv.innerHTML = `
+                    <div class="status success">
+                        ✅ Test zakończony! ${successful}/${testWords.length} obrazów załadowanych pomyślnie<br>
+                        📊 Średni czas ładowania: ${(avgTime / 1000).toFixed(2)}s
+                    </div>
+                `;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="status error">
+                        ⚠️ Test zakończony z błędami: ${successful}/${testWords.length} obrazów załadowanych<br>
+                        ${successful > 0 ? `📊 Średni czas ładowania (udane): ${(avgTime / 1000).toFixed(2)}s` : ''}
+                    </div>
+                `;
+            }
+            
+            btn.disabled = false;
+        }
+
+        document.getElementById('startTest').addEventListener('click', runTest);
+    </script>
+</body>
+</html>

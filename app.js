@@ -123,7 +123,7 @@ class VocabularyApp {
       autoFlipDelay: 3,
       // enableDikiVerification: true, // (removed) weryfikacja DIKI nieużywana
       enableAISelfCheck: true, // Samokontrola tłumaczenia przez AI
-      flashcardAnimMs: 1000,
+      flashcardAnimMs: 500,
     };
 
     // AI word generation - rozszerzone kategorie + dynamiczne
@@ -340,6 +340,70 @@ class VocabularyApp {
       "categoryUsageStats",
       JSON.stringify(this.categoryUsageStats)
     );
+  }
+
+  addSingleWord(polish, english) {
+    const pl = String(polish || "").trim();
+    const en = String(english || "").trim();
+    if (!pl || !en) return;
+
+    // uniknij duplikatów
+    const key = `${pl.toLowerCase()}-${en.toLowerCase()}`;
+    const exists = this.words.some(
+      (w) =>
+        `${(w.polish || "").toLowerCase()}-${(
+          w.english || ""
+        ).toLowerCase()}` === key
+    );
+    if (exists) {
+      alert("Takie słowo już istnieje na liście.");
+      return;
+    }
+
+    const newWord = {
+      polish: pl,
+      english: en,
+      status: "new",
+      attempts: 0,
+      correct: 0,
+      lastReview: null,
+      nextReview: null,
+      hasImage: true, // ustaw na false, jeśli chcesz dociągać obrazek później
+      aiGenerated: false, // ręcznie dodane słowo
+      addedAt: new Date().toISOString(),
+    };
+
+    this.words.push(newWord);
+    this.saveData();
+    this.updateStats();
+  }
+
+  updateWordSetStats() {
+    try {
+      const total = this.words.length;
+      const customCount = this.words.filter(
+        (w) => w.aiGenerated === false
+      ).length;
+      const aiCount = this.words.filter((w) => w.aiGenerated !== false).length;
+      const mode = this.settings.wordSetMode || "mixed";
+
+      const statsEl = document.getElementById("word-set-stats");
+      if (statsEl) {
+        statsEl.textContent = `Razem słów: ${total} • Ręczne: ${customCount} • AI: ${aiCount}`;
+      }
+      const summaryEl = document.getElementById("word-set-summary");
+      if (summaryEl) {
+        const modeLabel =
+          mode === "custom"
+            ? "Tylko własne"
+            : mode === "ai"
+            ? "Tylko AI"
+            : "Mieszany";
+        summaryEl.textContent = `Aktywny tryb: ${modeLabel}`;
+      }
+    } catch (e) {
+      // ciche zabezpieczenie
+    }
   }
 
   loadDefaultWords() {
@@ -564,6 +628,142 @@ class VocabularyApp {
       this.exportWords();
     });
 
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    // Add single custom word (polish + optional english, with auto-translate)
+    const addWordBtn = document.getElementById("add-word-btn");
+    if (addWordBtn) {
+      addWordBtn.addEventListener("click", async () => {
+        const plInput = document.getElementById("add-polish");
+        const enInput = document.getElementById("add-english");
+        const autoCb = document.getElementById("add-auto-translate");
+        let polishRaw = (plInput?.value || "").trim();
+        let englishRaw = (enInput?.value || "").trim();
+        const autoTranslate = !!(autoCb && autoCb.checked);
+
+        // Sprawdź czy podano cokolwiek
+        if (!polishRaw && !englishRaw) {
+          alert("Podaj słowo w języku polskim lub angielskim.");
+          return;
+        }
+
+        try {
+          // Show loading state
+          addWordBtn.disabled = true;
+          addWordBtn.textContent = "⏳ Dodawanie...";
+
+          // Przypadek 1: Mamy polski, brak angielskiego - tłumacz PL→EN
+          if (polishRaw && !englishRaw && autoTranslate) {
+            addWordBtn.textContent = "🔄 Tłumaczę PL→EN...";
+            englishRaw =
+              (await this.getTranslationFromMyMemory(polishRaw)) || "";
+
+            if (!englishRaw) {
+              englishRaw =
+                (await this.getTranslationFromLibre(polishRaw)) || "";
+            }
+
+            if (!englishRaw) {
+              alert(
+                "Nie udało się przetłumaczyć automatycznie. Wprowadź tłumaczenie ręcznie."
+              );
+              addWordBtn.disabled = false;
+              addWordBtn.textContent = "➕ Dodaj słowo";
+              return;
+            }
+          }
+
+          // Przypadek 2: Mamy angielski, brak polskiego - tłumacz EN→PL
+          if (englishRaw && !polishRaw && autoTranslate) {
+            addWordBtn.textContent = "🔄 Tłumaczę EN→PL...";
+            polishRaw = (await this.getPolishTranslation(englishRaw)) || "";
+
+            if (!polishRaw) {
+              alert(
+                "Nie udało się przetłumaczyć automatycznie. Wprowadź tłumaczenie ręcznie."
+              );
+              addWordBtn.disabled = false;
+              addWordBtn.textContent = "➕ Dodaj słowo";
+              return;
+            }
+          }
+
+          // Sprawdź czy mamy oba tłumaczenia
+          if (!polishRaw || !englishRaw) {
+            alert("Podaj oba tłumaczenia lub włącz automatyczne tłumaczenie.");
+            addWordBtn.disabled = false;
+            addWordBtn.textContent = "➕ Dodaj słowo";
+            return;
+          }
+
+          // Add the word
+          this.addSingleWord(polishRaw, englishRaw);
+
+          if (plInput) plInput.value = "";
+          if (enInput) enInput.value = "";
+
+          // Refresh stats
+          this.updateStats();
+
+          addWordBtn.textContent = "✅ Dodano!";
+          setTimeout(() => {
+            addWordBtn.textContent = "➕ Dodaj słowo";
+          }, 2000);
+
+          alert(`Dodano słowo: ${polishRaw} → ${englishRaw}`);
+        } catch (err) {
+          console.error("Add single word error", err);
+          alert("Nie udało się dodać słowa. Spróbuj ponownie.");
+        } finally {
+          addWordBtn.disabled = false;
+        }
+      });
+    }
+    // Word set selection (custom/AI/mixed)
+    const customOnlyCheckbox = document.getElementById("use-custom-only");
+    const aiOnlyCheckbox = document.getElementById("use-ai-only");
+    const mixedCheckbox = document.getElementById("use-mixed");
+
+    if (customOnlyCheckbox) {
+      customOnlyCheckbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          this.settings.wordSetMode = "custom";
+          if (aiOnlyCheckbox) aiOnlyCheckbox.checked = false;
+          if (mixedCheckbox) mixedCheckbox.checked = false;
+          this.saveData();
+          this.updateWordSetStats();
+        }
+      });
+    }
+
+    if (aiOnlyCheckbox) {
+      aiOnlyCheckbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          this.settings.wordSetMode = "ai";
+          if (customOnlyCheckbox) customOnlyCheckbox.checked = false;
+          if (mixedCheckbox) mixedCheckbox.checked = false;
+          this.saveData();
+          this.updateWordSetStats();
+        }
+      });
+    }
+
+    if (mixedCheckbox) {
+      mixedCheckbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          this.settings.wordSetMode = "mixed";
+          if (customOnlyCheckbox) customOnlyCheckbox.checked = false;
+          if (aiOnlyCheckbox) aiOnlyCheckbox.checked = false;
+          this.saveData();
+          this.updateWordSetStats();
+        }
+      });
+    }
+
     document.getElementById("reset-progress").addEventListener("click", () => {
       this.resetProgress();
     });
@@ -763,9 +963,21 @@ class VocabularyApp {
 
   async prepareStudySet() {
     const now = new Date();
+    const mode = this.settings.wordSetMode || "mixed";
+
+    // Filter words based on word set mode
+    let availableWords = this.words;
+    if (mode === "custom") {
+      // Only custom (manually added) words
+      availableWords = this.words.filter((w) => w.aiGenerated === false);
+    } else if (mode === "ai") {
+      // Only AI-generated words
+      availableWords = this.words.filter((w) => w.aiGenerated !== false);
+    }
+    // "mixed" mode uses all words
 
     // Get words that need review or are new
-    this.currentStudySet = this.words.filter((word) => {
+    this.currentStudySet = availableWords.filter((word) => {
       if (word.status === "new") return true;
       if (word.nextReview && new Date(word.nextReview) <= now) return true;
       return false;
@@ -776,8 +988,15 @@ class VocabularyApp {
       const newWords = this.currentStudySet.filter((w) => w.status === "new");
       if (newWords.length < this.settings.dailyGoal) {
         await this.generateNewWords(this.settings.dailyGoal - newWords.length);
-        // Refresh the study set after adding new words
-        this.currentStudySet = this.words.filter((word) => {
+        // Refresh the study set after adding new words (with mode filter)
+        availableWords = this.words;
+        if (mode === "custom") {
+          availableWords = this.words.filter((w) => w.aiGenerated === false);
+        } else if (mode === "ai") {
+          availableWords = this.words.filter((w) => w.aiGenerated !== false);
+        }
+
+        this.currentStudySet = availableWords.filter((word) => {
           if (word.status === "new") return true;
           if (word.nextReview && new Date(word.nextReview) <= now) return true;
           return false;
@@ -1891,20 +2110,27 @@ class VocabularyApp {
     ).toLowerCase()}`;
     if (this.imageUrlCache[cacheKey]) {
       const url = this.imageUrlCache[cacheKey];
+      // Use proxy if configured to avoid adblock/CORS
+      let finalUrl = url;
+      try {
+        const base = (this.settings.proxyBaseUrl || "").replace(/\/$/, "");
+        if (base && /^https?:\/\//.test(base)) {
+          finalUrl = `${base}/api/proxy-image?url=${encodeURIComponent(url)}`;
+        }
+      } catch (_) {}
+
+      // Cache - usuń placeholder i pokaż obrazek od razu (powinien być już załadowany)
+      container.textContent = "";
+      container.style.fontSize = "";
+      container.style.backgroundImage = `url(${finalUrl})`;
+
+      // W tle zweryfikuj czy obrazek nadal działa
       const img = new Image();
-      img.onload = () => {
-        container.style.backgroundImage = `url(${url})`;
-        container.textContent = "";
-      };
       img.onerror = () => {
-        /* If cached URL fails now, try full flow again */ this._loadWordImageFlow(
-          container,
-          englishWord,
-          polishWord,
-          cacheKey
-        );
+        /* If cached URL fails now, try full flow again */
+        this._loadWordImageFlow(container, englishWord, polishWord, cacheKey);
       };
-      img.src = url;
+      img.src = finalUrl;
       return;
     }
     return this._loadWordImageFlow(
@@ -1917,34 +2143,43 @@ class VocabularyApp {
 
   async _loadWordImageFlow(container, englishWord, polishWord, cacheKey) {
     container.style.backgroundImage = "";
-    container.textContent = "🖼️";
+    container.textContent = "⏳";
+    container.style.fontSize = "2rem";
     AI_IMG_DBG("loadWordImage start", {
       englishWord,
       polishWord,
       provider: this.settings.aiImageProvider,
     });
 
-    const proxify = (url) => {
-      try {
-        const base = (this.settings.proxyBaseUrl || "").replace(/\/$/, "");
-        if (base && /^https?:\/\//.test(base)) {
-          return `${base}/api/proxy-image?url=${encodeURIComponent(url)}`;
-        }
-      } catch (_) {}
-      return url;
-    };
+const proxify = (url) => {
+  // Dla GitHub Pages zwracamy URL bezpośrednio.
+  // Proxy wymagałoby aktywnego serwera node.js, którego tam nie ma.
+  return url; 
+};
 
     const applyImage = (url) => {
-      const img = new Image();
       const finalUrl = proxify(url);
+
+      AI_IMG_DBG("Applying image", { url, finalUrl });
+
+      // Usuń placeholder (emoji/ikona ładowania) ZANIM ustawimy obrazek
+      container.textContent = "";
+      container.style.fontSize = "";
+
+      // Poczekaj aż obrazek się załaduje, POTEM go pokaż
+      const img = new Image();
       img.onload = () => {
+        // Obrazek załadowany - teraz możemy go pokazać
+        AI_IMG_DBG("Image loaded successfully", { url });
         container.style.backgroundImage = `url(${finalUrl})`;
-        container.textContent = "";
+        container.textContent = ""; // Upewnij się że nie ma tekstu
       };
       img.onerror = () => {
+        // Jeśli błąd, załaduj fallback
+        AI_IMG_DBG("Image load error", { url });
         this.loadFallbackImage(container, englishWord, polishWord);
       };
-      img.src = url;
+      img.src = finalUrl;
     };
 
     try {
@@ -2105,9 +2340,10 @@ class VocabularyApp {
       }
       if (!definition) {
         const category = this.guessWordCategory(polishWord || "") || "general";
-        definition = `the sense of ${englishWord} that corresponds to the Polish \"${
+        // Twórz bardziej opisowy fallback bez bezpośredniego używania słowa angielskiego
+        definition = `a concept related to ${category}, specifically something that Polish speakers call \"${
           polishWord || englishWord
-        }\" (${category})`;
+        }\"`;
       }
       this.imagePromptCache[key] = definition;
       return definition;
@@ -2119,36 +2355,38 @@ class VocabularyApp {
   // Generowanie obrazków z bezpłatnym AI (Pollinations AI)
   async generateFreeAIImage(englishWord, polishWord) {
     try {
-      // Pollinations AI - bezpłatny serwis do generowania obrazków (z definicją dla jednoznaczności)
-      const sense = await this.getImageSenseText(englishWord, polishWord);
-      AI_IMG_DBG("Sense (Pollinations)", { englishWord, polishWord, sense });
-      const prompt = `photo of ${englishWord}, ${sense}, vibrant color, detailed, high qua    lity, --no text, words, letters, typography, signature, watermark, caption, label, font`;
+      let prompt = "";
+
+      // Jeśli mamy klucz API, niech Gemini stworzy idealny opis wizualny
+      if (this.settings.aiApiKey) {
+        try {
+          const visualPrompt = `Describe the physical appearance of "${englishWord}" (Polish meaning: "${polishWord}") for an image generator. 
+           Return ONLY 3-5 keywords describing the visual object, separated by commas. 
+           Example for "bank" (money): "modern building, architecture, money sign".
+           Example for "bank" (river): "river side, grass, water, nature".`;
+
+          const keywords = await this.callGemini(visualPrompt);
+          prompt = `${englishWord}, ${keywords}, icon style, vector, white background, minimalist`;
+        } catch (e) {
+          // Fallback jeśli Gemini nie odpowie
+          prompt = `${englishWord}, ${polishWord}, simple icon, white background`;
+        }
+      } else {
+        // Bez klucza API - prosta metoda
+        prompt = `${englishWord}, context of ${polishWord}, icon style, vector, white background`;
+      }
+
       const encodedPrompt = encodeURIComponent(prompt);
+      const seed = this.hashCode(`${englishWord}|${polishWord}`);
 
-      // Generujemy unikalny seed na podstawie EN+PL
-      const seed = this.hashCode(`${englishWord}|${polishWord || ""}|imgv2`);
-      const defaultUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
-      AI_IMG_DBG("Fetch Pollinations URL", {
-        imageUrl: defaultUrl,
-        prompt,
-        seed,
-      });
-      const okDefault = await this.tryLoadImage(defaultUrl, 8000);
-      if (okDefault) return okDefault;
+      // Używamy modelu Flux przez Pollinations
+      const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=turbo&nologo=true&enhance=false`;
 
-      // Jeśli standardowy backend nie działa, spróbuj model=flux jako alternatywy
-      const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
-      AI_IMG_DBG("Fetch Pollinations Flux URL", {
-        imageUrl: fluxUrl,
-        prompt,
-        seed,
-      });
-      const okFlux = await this.tryLoadImage(fluxUrl, 8000);
-      if (okFlux) return okFlux;
+      AI_IMG_DBG("🚀 GEMINI->FLUX", { prompt, url: fluxUrl });
 
-      return null;
+      return await this.tryLoadImage(fluxUrl, 15000);
     } catch (error) {
-      console.error("Błąd generowania obrazu z Pollinations:", error);
+      console.error("Image gen error:", error);
       return null;
     }
   }
@@ -2229,174 +2467,48 @@ class VocabularyApp {
   }
 
   async loadFallbackImage(container, englishWord, polishWord) {
-    try {
-      // Spróbuj drugi bezpłatny serwis AI - Hugging Face (Pollinations alt)
-      const hfImageUrl = await this.generateHuggingFaceImage(
-        englishWord,
-        polishWord
-      );
-      if (hfImageUrl) {
-        const img = new Image();
-        img.onload = () => {
-          container.style.backgroundImage = `url(${hfImageUrl})`;
-          container.textContent = "";
-        };
-        img.onerror = async () => {
-          // Jeśli alt Pollinations padł, spróbuj Unsplash Source API
-          const unsplashUrl = await this.generateUnsplashImage(
-            englishWord,
-            polishWord
-          );
-          if (unsplashUrl) {
-            container.style.backgroundImage = `url(${unsplashUrl})`;
-            container.textContent = "";
-          } else {
-            this.loadIconImage(container, englishWord);
-          }
-        };
-        img.src = hfImageUrl;
-        return;
-      }
-    } catch (error) {
-      console.warn("Błąd generowania obrazu z Hugging Face:", error);
-    }
-
-    // Trzeci fallback: Unsplash Source (bez klucza)
-    try {
-      const unsplashUrl = await this.generateUnsplashImage(
-        englishWord,
-        polishWord
-      );
-      if (unsplashUrl) {
-        container.style.backgroundImage = `url(${unsplashUrl})`;
-        container.textContent = "";
-        return;
-      }
-    } catch (e) {
-      console.warn("Unsplash fallback failed:", e);
-    }
-
-    // Ostateczny fallback - ikony i emoji
+    // Tylko ikony/emoji jako fallback - bez zewnętrznych serwisów
     this.loadIconImage(container, englishWord);
   }
 
   // Helper: try to load an image URL with timeout; resolve(url) on success else null
-  async tryLoadImage(url, timeoutMs = 8000) {
-    // Try via proxy (if configured) first to bypass adblock/CORS, but always return the original URL on success
-    const buildProxy = (u) => {
+  async tryLoadImage(url, timeoutMs = 15000) {
+    AI_IMG_DBG("tryLoadImage", { url, timeoutMs });
+
+    return new Promise((resolve) => {
       try {
-        const base = (this.settings.proxyBaseUrl || "").replace(/\/$/, "");
-        if (base && /^https?:\/\//.test(base)) {
-          return `${base}/api/proxy-image?url=${encodeURIComponent(u)}`;
-        }
-      } catch (_) {}
-      return null;
-    };
-    const candidates = [];
-    const viaProxy = buildProxy(url);
-    if (viaProxy) candidates.push({ testUrl: viaProxy, retUrl: url });
-    candidates.push({ testUrl: url, retUrl: url });
+        const img = new Image();
+        let done = false;
 
-    for (const c of candidates) {
-      const ok = await new Promise((resolve) => {
-        try {
-          const img = new Image();
-          let done = false;
-          const t = setTimeout(() => {
-            if (done) return;
-            done = true;
-            resolve(false);
-          }, timeoutMs);
-          img.onload = () => {
-            if (done) return;
-            done = true;
-            clearTimeout(t);
-            resolve(true);
-          };
-          img.onerror = () => {
-            if (done) return;
-            done = true;
-            clearTimeout(t);
-            resolve(false);
-          };
-          img.src = c.testUrl;
-        } catch (_) {
-          resolve(false);
-        }
-      });
-      if (ok) return c.retUrl;
-    }
-    return null;
-  }
+        const t = setTimeout(() => {
+          if (done) return;
+          done = true;
+          AI_IMG_DBG("Image load timeout", { url, timeoutMs });
+          resolve(null);
+        }, timeoutMs);
 
-  // Fallback generator bez klucza: Pollinations (default -> flux), a na końcu Unsplash
-  async generateHuggingFaceImage(englishWord, polishWord) {
-    // returns URL or null (disabled fallback per user)
-    return null;
-    // Try standard Pollinations first; if not available, try flux as fallback
+        img.onload = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          AI_IMG_DBG("Image loaded successfully", { url });
+          resolve(url);
+        };
 
-    try {
-      // Użyj tej samej strategii rozstrzygania znaczeń jak w głównym generatorze
-      const sense = await this.getImageSenseText(englishWord, polishWord);
-      const prompt = `${englishWord} - ${sense}`;
-      AI_IMG_DBG("Sense (HF icon)", { englishWord, polishWord, sense });
-      const encodedPrompt = encodeURIComponent(prompt);
-      const seed = this.hashCode(`${englishWord}|${polishWord || ""}|iconv1`);
+        img.onerror = (e) => {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          AI_IMG_DBG("Image load error", { url, error: e });
+          resolve(null);
+        };
 
-      // First try default Pollinations (no flux)
-      const defaultUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&nologo=true`;
-      AI_IMG_DBG("Try HF default URL", { defaultUrl, prompt, seed });
-      const okDefault = await this.tryLoadImage(defaultUrl, 8000);
-      if (okDefault) return okDefault;
-
-      // If default unavailable, try flux backend
-      const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true`;
-      AI_IMG_DBG("Try HF flux URL", { fluxUrl, prompt, seed });
-      const okFlux = await this.tryLoadImage(fluxUrl, 8000);
-      if (okFlux) return okFlux;
-
-      // Lastly, try Unsplash Source API as a generic photo fallback (no API key)
-      const unsplash = await this.generateUnsplashImage(
-        englishWord,
-        polishWord
-      );
-      if (unsplash) return unsplash;
-
-      return null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  // Generic photo fallback: Unsplash Source API then Picsum (no API keys)
-  async generateUnsplashImage(englishWord, polishWord) {
-    // disabled per user
-    return null;
-    try {
-      // Build a simple, likely-to-exist query
-      const cleaned = String(englishWord || "")
-        .replace(/[^a-zA-Z\s]/g, " ")
-        .trim();
-      const tokens = cleaned.split(/\s+/).filter(Boolean);
-      const primary =
-        tokens.length > 1 ? tokens[tokens.length - 1] : tokens[0] || "object";
-      const query = encodeURIComponent(`${primary},time,illustration`);
-
-      // Unsplash Source will 302 to a concrete image URL
-      const url = `https://source.unsplash.com/featured/${AI_IMAGE_MIN_DIM}x${AI_IMAGE_MIN_DIM}?${query}`;
-      const ok = await this.tryLoadImage(url, 7000);
-      if (ok) return ok;
-
-      // Picsum placeholder as a last resort photo
-      const seed = this.hashCode(`${englishWord}|${polishWord || ""}|unsplash`);
-      const picsum = `https://picsum.photos/seed/${seed}/${AI_IMAGE_MIN_DIM}/${AI_IMAGE_MIN_DIM}`;
-      const ok2 = await this.tryLoadImage(picsum, 5000);
-      if (ok2) return ok2;
-
-      return null;
-    } catch (_) {
-      return null;
-    }
+        img.src = url;
+      } catch (e) {
+        AI_IMG_DBG("Exception in tryLoadImage", { url, error: e });
+        resolve(null);
+      }
+    });
   }
 
   // Gemini 2.5 Flash Image Preview
@@ -2608,7 +2720,7 @@ class VocabularyApp {
     };
 
     const word = englishWord.toLowerCase();
-    return emojiMap[word] || "🖼️";
+    return emojiMap[word];
   }
 
   // Answer Recording and Spaced Repetition
@@ -3319,47 +3431,59 @@ Odpowiedź (tylko nazwa kategorii):`;
 
   // ZMIANA: Zaktualizowano `getWordsFromAI` o opcję 'huggingface'
   async getWordsFromAI(category, level, count) {
-    // Note: downstream may run selfCheckAndFixTranslations if enabled
-
-    // Obsługa trybu darmowego bez klucza API
+    // 1. Obsługa trybu 'free' (prosty algorytm bez LLM)
     if (this.settings.aiProvider === "free") {
       return await this.getFreeAIWords(category, level, count);
     }
 
-    if (!this.settings.aiApiKey) {
-      throw new Error("Brak klucza API. Wprowadź go w ustawieniach.");
-    }
-
-    // Generujemy prompt i odpytujemy AI o gotowe pary słów
-    const prompt = this.buildAIPrompt(category, level, count);
-    let aiResponse;
-    switch (this.settings.aiProvider) {
-      case "openai":
-        aiResponse = await this.callOpenAI(prompt);
-        break;
-      case "anthropic":
-        aiResponse = await this.callAnthropic(prompt);
-        break;
-      case "gemini":
-        aiResponse = await this.callGemini(prompt);
-        break;
-      case "huggingface":
-        aiResponse = await this.callHuggingFace(prompt);
-        break;
-      default:
-        throw new Error("Nieznany dostawca AI");
-    }
-
-    // Parsujemy odpowiedź i otrzymujemy gotowe, sformatowane słowa
-    const newWords = await this.parseAIResponse(aiResponse, category);
-
-    if (newWords.length === 0) {
-      console.warn(
-        "AI nie zwróciło żadnych poprawnych słów. Spróbuj ponownie lub zmień ustawienia AI."
+    // 2. ZMIANA: Walidacja klucza API - puszczamy 'huggingface' bez klucza (ma darmowy tier)
+    // Wcześniej kod blokował wszystko co nie miało klucza.
+    if (!this.settings.aiApiKey && this.settings.aiProvider !== "huggingface") {
+      throw new Error(
+        "Brak klucza API. Wprowadź go w ustawieniach lub wybierz Hugging Face/Darmowy."
       );
     }
 
-    return newWords;
+    const prompt = this.buildAIPrompt(category, level, count);
+    let aiResponse;
+
+    try {
+      switch (this.settings.aiProvider) {
+        case "openai":
+          aiResponse = await this.callOpenAI(prompt);
+          break;
+        case "anthropic":
+          aiResponse = await this.callAnthropic(prompt);
+          break;
+        case "gemini":
+          aiResponse = await this.callGemini(prompt);
+          break;
+        case "huggingface":
+          // Tutaj wywoływana jest nowa metoda callHuggingFace (tę z poprzedniej odpowiedzi),
+          // która zwraca JSON string z inteligentnie dobranymi słowami.
+          aiResponse = await this.callHuggingFace(prompt);
+          break;
+        default:
+          throw new Error("Nieznany dostawca AI");
+      }
+
+      // Parsujemy odpowiedź LLM
+      const newWords = await this.parseAIResponse(aiResponse, category);
+
+      if (newWords.length === 0) {
+        throw new Error("AI zwróciło pustą listę.");
+      }
+
+      return newWords;
+    } catch (error) {
+      console.warn("Główny provider AI zawiódł:", error);
+
+      // 3. ZMIANA: Inteligentny Fallback
+      // Jeśli Hugging Face lub inne API rzuci błąd (np. 503 Overloaded),
+      // zamiast wyświetlać błąd użytkownikowi, automatycznie używamy prostszego generatora.
+      console.log("Uruchamianie trybu zapasowego (Free fallback)...");
+      return await this.getFreeAIWords(category, level, count);
+    }
   }
 
   // Nowa funkcja dla całkowicie darmowych słów
@@ -3724,22 +3848,21 @@ Odpowiedź (tylko nazwa kategorii):`;
 
     // Dla Gemini użyj zwięzłego promptu i minimalnego formatu (zmniejsza ryzyko MAX_TOKENS)
     if (this.settings.aiProvider === "gemini") {
-      return `Jesteś leksykografem. Zwróć TYLKO JSON (tablica obiektów) bez markdown i bez komentarzy.
-
+      return `Jesteś nauczycielem angielskiego. Zwróć TYLKO JSON.
+    
 KONTEKST:
-- Temat: ${category}
-- Poziom: ${level} (CEFR)
-- Unikaj słów już użytych: ${existingWords}
+- Kategoria: "${category}"
+- Poziom: ${level}
+- Wyklucz: ${existingWords}
 
 ZADANIE:
-- Wygeneruj ${count} par PL→EN związanych z tematem.
-- Każdy element: {"polish":"…","english":"…"} (dokładnie te dwa pola).
-- Bez dodatkowych pól (brak sources, examples, notes itp.).
+Stwórz listę ${count} popularnych, użytecznych rzeczowników/czasowników z tej kategorii.
+Słowa muszą być jednoznaczne (łatwe do zobrazowania).
 
-GUARDY:
-- Nie zwracaj english == polish (wyjątki: "hotel", "internet", "radio").
-- "parapet" (PL, okienny) → "windowsill" (lub "window ledge").
-- "skosy" (we wnętrzach/poddasze) → "sloped ceilings" lub "pitched ceilings".
+FORMAT JSON (bez markdown):
+[
+  {"polish": "...", "english": "..."}
+]
 `;
     }
 
@@ -3908,123 +4031,131 @@ GUARDY PRZECIW BŁĘDOM:
   }
 
   async callGemini(prompt, options = {}) {
-    // Użyj wybranego modelu z ustawień lub domyślnie Gemini 2.5 Flash
-    const model =
-      this.settings.aiModel &&
-      String(this.settings.aiModel).startsWith("gemini-")
-        ? this.settings.aiModel
-        : "gemini-2.5-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-      model
-    )}:generateContent?key=${this.settings.aiApiKey}`;
+    // 1. Wybierz model z ustawień lub bezpieczny domyślny
+    // "gemini-2.5-flash-latest" to alias, który wskazuje na najnowszą działającą wersję Flash
+    let model = this.settings.aiModel;
 
-    const generationConfig = {
-      temperature: 0.5,
-      topK: 32,
-      topP: 0.9,
-      maxOutputTokens: 2048,
-    };
-    if (options && options.responseMimeType) {
-      generationConfig.responseMimeType = options.responseMimeType;
+    // Zabezpieczenie: jeśli model nie jest z rodziny gemini (np. zostało coś z openAI), wymuś default
+    if (!model || !model.startsWith("gemini")) {
+      model = "gemini-2.5-flash-latest";
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig,
-      }),
-    });
+    // Budowanie URL
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.settings.aiApiKey}`;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-    }
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          // Wyłączenie filtrów bezpieczeństwa (często blokują słowa słownikowe)
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            {
+              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+              threshold: "BLOCK_NONE",
+            },
+            {
+              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+              threshold: "BLOCK_NONE",
+            },
+          ],
+        }),
+      });
 
-    const data = await response.json();
-
-    // Jeśli API zwróciło blokadę bezpieczeństwa lub brak kandydatów – pokaż czytelną informację
-    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-    if (candidates.length === 0) {
-      const pf = data.promptFeedback || {};
-      const safety = pf.safetyRatings || pf.blockReason || pf.feedback || null;
-      const msg = safety
-        ? `Brak kandydatów (safety): ${JSON.stringify(safety)}`
-        : "Brak kandydatów w odpowiedzi";
-      throw new Error(`Nieprawidłowa odpowiedź z Gemini API: ${msg}`);
-    }
-
-    // Bezpieczne wyciągnięcie tekstu z różnych możliwych kształtów odpowiedzi
-    const first = candidates[0];
-    let text = "";
-    const parts =
-      first && first.content && Array.isArray(first.content.parts)
-        ? first.content.parts
-        : null;
-    if (parts) {
-      const withText = parts.find(
-        (p) => typeof p.text === "string" && p.text.trim().length > 0
-      );
-      if (withText) {
-        text = withText.text;
-      } else {
-        text = parts
-          .map((p) => (p && p.text ? p.text : ""))
-          .filter(Boolean)
-          .join("\n")
-          .trim();
-      }
-    }
-    if (
-      !text &&
-      first &&
-      first.content &&
-      typeof first.content.text === "string"
-    ) {
-      text = first.content.text;
-    }
-    if (!text && typeof first.output === "string") {
-      text = first.output;
-    }
-
-    if (!text || !text.trim()) {
-      const shortDump = (() => {
-        try {
-          return JSON.stringify(data).slice(0, 800);
-        } catch (_) {
-          return "[unserializable]";
+      if (!response.ok) {
+        // Szczegółowa obsługa błędu 404 (zła nazwa modelu)
+        if (response.status === 404) {
+          throw new Error(
+            `Model '${model}' nie istnieje (Błąd 404). Zmień model w ustawieniach na inny wariant Gemini.`
+          );
         }
-      })();
-      throw new Error(
-        `Nieprawidłowa odpowiedź z Gemini API: brak treści tekstowej. Debug: ${shortDump}`
-      );
-    }
+        const errText = await response.text();
+        throw new Error(`Gemini API Error: ${response.status} - ${errText}`);
+      }
 
-    return text.trim();
+      const data = await response.json();
+
+      // Wyciągamy tekst
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        throw new Error(
+          "Gemini zwróciło pustą odpowiedź (możliwa blokada treści)"
+        );
+      }
+
+      return text.trim();
+    } catch (e) {
+      console.error("Call Gemini Error:", e);
+      throw e;
+    }
   }
 
   // NOWA FUNKCJA: Do obsługi Hugging Face API
   async callHuggingFace(prompt) {
-    // Użyj darmowego API bez klucza - np. przez proxy lub publiczne endpointy
+    // Wybrany model - Qwen jest bardzo szybki i dobry w JSON
+    const model = "Qwen/Qwen2.5-72B-Instruct";
+    // Alternatywa, jeśli powyższy nie działa: "mistralai/Mistral-7B-Instruct-v0.2"
+
+    const apiUrl = `https://api-inference.huggingface.co/models/${model}`;
+
+    // System prompt wymuszający JSON
+    const systemPrompt = `You are a dictionary generator. 
+    Output ONLY valid JSON array of objects. 
+    Strict format: [{"polish": "word", "english": "word"}]. 
+    No markdown, no explanation.`;
+
+    const payload = {
+      inputs: `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`,
+      parameters: {
+        max_new_tokens: 500,
+        return_full_text: false,
+        temperature: 0.7,
+      },
+    };
+
+    // UWAGA: Hugging Face Inference API wymaga tokena dla stabilności,
+    // ale ma limitowany dostęp darmowy bez tokena lub z tokenem użytkownika.
+    // Najlepiej pobrać token z settings, a jeśli brak - spróbować bez (może być rate limit).
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (this.settings.aiApiKey && this.settings.aiProvider === "huggingface") {
+      headers["Authorization"] = `Bearer ${this.settings.aiApiKey}`;
+    }
+
     try {
-      // Opcja 1: Użyj darmowego tłumaczenia z MyMemory
-      const words = await this.generateWordsWithTranslation(prompt);
-      // Zwróć bezpośrednio tablicę w formacie JSON, kompatybilną z parseAIResponse
-      return JSON.stringify(words);
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HF API Error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      // Wyciągnięcie tekstu z odpowiedzi (zależne od modelu)
+      let generatedText = "";
+      if (Array.isArray(result) && result[0]?.generated_text) {
+        generatedText = result[0].generated_text;
+      } else if (result?.generated_text) {
+        generatedText = result.generated_text;
+      } else {
+        generatedText = JSON.stringify(result);
+      }
+
+      return generatedText;
     } catch (error) {
-      console.error("Błąd generowania słów:", error);
-      throw error;
+      console.error("HF Call Error:", error);
+      // Fallback do starej metody "random + translate" jeśli API zawiedzie
+      return this.generateWordsWithTranslation(prompt).then((res) =>
+        JSON.stringify(res)
+      );
     }
   }
 
@@ -4087,52 +4218,74 @@ GUARDY PRZECIW BŁĘDOM:
 
   // Tłumaczenie EN -> PL (na potrzeby trybu darmowego)
   async getPolishTranslation(englishWord) {
-    // Najpierw spróbuj MyMemory (en->pl)
+    if (!englishWord || englishWord.trim().length < 2) return null;
+    const word = englishWord.trim();
+
+    // 1. PRÓBA: Google Gemini (Najwyższa jakość)
     try {
+      if (!this.settings.aiApiKey) {
+        // Jeśli brak klucza, rzuć błąd, by przejść do darmowego fallbacku
+        throw new Error("Brak klucza API dla Gemini");
+      }
+
+      const prompt = `You are a strict Polish-English dictionary.
+Task: Translate "${word}" into Polish.
+
+STRICT RULES:
+1. Return ONLY the Polish word. Nothing else.
+2. NO markdown, NO quotes, NO definitions.
+3. Prefer concrete nouns over abstract concepts (e.g., "hinge" -> "zawias").
+4. Use nominative case (Mianownik).
+
+Input: "${word}"
+Polish translation:`;
+
+      // Wywołujemy Gemini
+      // Upewnij się, że w Ustawieniach wybrany jest provider "Gemini" lub "Free" z wpisanym kluczem
+      const aiResponse = await this.callGemini(prompt);
+
+      // Czyszczenie odpowiedzi (Gemini jest grzeczne, ale czasem doda kropkę)
+      let cleanTranslation = aiResponse
+        .replace(/\.$/, "") // usuń kropkę na końcu
+        .replace(/["'`]/g, "") // usuń cudzysłowy
+        .replace(/\*\*/g, "") // usuń boldowanie markdown
+        .trim()
+        .toLowerCase();
+
+      if (cleanTranslation && cleanTranslation.length > 1) {
+        console.log(`[Gemini Dict] ${word} -> ${cleanTranslation}`);
+        return cleanTranslation;
+      }
+    } catch (error) {
+      // console.warn("Gemini translation failed/skipped:", error.message);
+    }
+
+    // 2. FALLBACK: MyMemory (Dla użytkowników bez klucza API)
+    try {
+      const email = "freeuser@vocabularyapp.com";
       const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
-        englishWord
-      )}&langpair=en|pl`;
+        word
+      )}&langpair=en|pl&de=${email}`;
+
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         if (data.responseData && data.responseData.translatedText) {
-          return data.responseData.translatedText;
-        }
-      }
-    } catch (error) {
-      console.warn("MyMemory en->pl failed:", error);
-    }
+          let translated = data.responseData.translatedText;
+          if (translated.includes("MYMEMORY") || translated.includes("Limit"))
+            return null;
 
-    // Fallback: LibreTranslate (en->pl)
-    try {
-      const servers = [
-        "https://translate.argosopentech.com",
-        "https://translate.terraprint.co",
-      ];
-      for (const server of servers) {
-        try {
-          const response = await fetch(`${server}/translate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              q: englishWord,
-              source: "en",
-              target: "pl",
-              format: "text",
-            }),
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (data.translatedText) {
-              return data.translatedText;
-            }
+          // Dekodowanie HTML (np. &quot;)
+          if (translated.includes("&")) {
+            const t = document.createElement("textarea");
+            t.innerHTML = translated;
+            translated = t.value;
           }
-        } catch (e) {
-          continue;
+          return translated.toLowerCase().trim();
         }
       }
     } catch (error) {
-      console.error("LibreTranslate en->pl error:", error);
+      console.warn("Fallback translation failed:", error);
     }
 
     return null;
@@ -4453,6 +4606,19 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
     document.getElementById("auto-add-words").checked =
       this.settings.autoAddWords;
 
+    // Word set mode checkboxes
+    const mode = this.settings.wordSetMode || "mixed";
+    const customOnlyCheckbox = document.getElementById("use-custom-only");
+    const aiOnlyCheckbox = document.getElementById("use-ai-only");
+    const mixedCheckbox = document.getElementById("use-mixed");
+
+    if (customOnlyCheckbox) customOnlyCheckbox.checked = mode === "custom";
+    if (aiOnlyCheckbox) aiOnlyCheckbox.checked = mode === "ai";
+    if (mixedCheckbox) mixedCheckbox.checked = mode === "mixed";
+
+    // Update word set stats
+    this.updateWordSetStats();
+
     // Auto-flip settings
     document.getElementById("auto-flip-enabled").checked =
       this.settings.autoFlipEnabled;
@@ -4511,8 +4677,10 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
       this.settings.adaptiveDifficulty;
     document.getElementById("enable-imagen").checked =
       this.settings.enableImagen;
-    document.getElementById("enable-diki-verification").checked =
-      this.settings.enableDikiVerification;
+    const diki = document.getElementById("enable-diki-verification");
+    if (diki) {
+      diki.checked = !!this.settings.enableDikiVerification;
+    }
 
     this.updateAIModelOptions();
     this.updateApiKeyFieldState();
@@ -4549,12 +4717,17 @@ Zwróć tylko liczbę dni (1-30) jako interwał do następnej powtórki:`;
         { value: "claude-3-opus-20240229", text: "Claude 3 Opus" },
         { value: "claude-3-haiku-20240307", text: "Claude 3 Haiku" },
       ],
+      // Wewnątrz metody updateAIModelOptions w app.js:
+
       gemini: [
-        { value: "gemini-2.5-flash", text: "Gemini 2.5 Flash (Najnowszy)" },
-        { value: "gemini-2.5-pro", text: "Gemini 2.5 Pro (Zaawansowany)" },
+        { value: "gemini-2.5-flash-lite", text: "Gemini 2.5 Flash Lite" },
         {
-          value: "gemini-2.5-flash-lite",
-          text: "Gemini 2.5 Flash-Lite (Ekonomiczny)",
+          value: "gemini-2.5-flash",
+          text: "Gemini 2.5 Flash",
+        },
+        {
+          value: "gemini-2.5-pro",
+          text: "Gemini 2.5 Pro",
         },
       ],
       huggingface: [
