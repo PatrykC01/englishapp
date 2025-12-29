@@ -1,7 +1,7 @@
 // Polish-English Vocabulary Learning App
 // Debug logs for AI image generation (set to false or comment out to disable)
 const AI_IMAGE_DEBUG = true; // <-- toggle this flag to enable/disable image debug logs easily
-const AI_IMAGE_MIN_DIM = 256; // Pollinations/Flux require >= 256 for width/height
+const AI_IMAGE_MIN_DIM = 512; // Pollinations/Flux require >= 256 for width/height
 function AI_IMG_DBG(...args) {
   try {
     if (AI_IMAGE_DEBUG) console.log("[AI-IMG]", ...args);
@@ -2380,7 +2380,7 @@ const proxify = (url) => {
       const seed = this.hashCode(`${englishWord}|${polishWord}`);
 
       // Używamy modelu Flux przez Pollinations
-      const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=turbo&nologo=true&enhance=false`;
+      const fluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${AI_IMAGE_MIN_DIM}&height=${AI_IMAGE_MIN_DIM}&seed=${seed}&model=flux&nologo=true&enhance=false`;
 
       AI_IMG_DBG("🚀 GEMINI->FLUX", { prompt, url: fluxUrl });
 
