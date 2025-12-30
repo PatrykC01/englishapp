@@ -2357,23 +2357,21 @@ const proxify = (url) => {
 // Metoda klasy VocabularyApp (bez słowa kluczowego 'function')
   // Zastąp istniejącą metodę generateFreeAIImage tym kodem:
   // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
-  async generateFreeAIImage(englishWord, polishWord) {
+  // Zastąp całą metodę generateFreeAIImage w klasie VocabularyApp:
+  // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
+async generateFreeAIImage(englishWord, polishWord) {
     console.log(`🎨 [Pollinations/Flux] Generowanie dla: ${englishWord}`);
 
     // 1. Tworzenie prostego promptu
-    // Unikamy skomplikowanych opisów, Flux lubi konkrety.
     const prompt = `high quality illustration of ${englishWord} (${polishWord}), single object, white background, vector art style, minimalism, 4k`;
 
     // 2. Generowanie losowego ziarna (seed), żeby obrazek był inny za każdym razem
     const seed = Math.floor(Math.random() * 1000000);
 
-    // 3. Budowanie URL
-    // Używamy modelu 'flux' - jest obecnie najlepszy z darmowych.
-    // encodeURIComponent jest kluczowy, żeby spacje i znaki specjalne nie psuły linku.
+    // 3. Budowanie URL - Pollinations działa jako zwykły link do obrazka, więc CORS go nie blokuje
     const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=512&height=512&model=flux&seed=${seed}&nologo=true`;
 
     // 4. Pre-loading (sprawdzenie czy obrazek działa)
-    // Zwracamy Promise, który rozwiązuje się do URL obrazka
     return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => resolve(imageUrl);
@@ -2383,7 +2381,7 @@ const proxify = (url) => {
         };
         img.src = imageUrl;
     });
-  }
+}
 
   // Imagen 4 (zamiast Imagen 3)
   async generateImageWithImagen4(englishWord, polishWord) {
