@@ -2360,60 +2360,53 @@ const proxify = (url) => {
   // Zastąp całą metodę generateFreeAIImage w klasie VocabularyApp:
   // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
 // Metoda naprawcza: Stabilne API Pollinations (Model Turbo - działa jak Craiyon, ale szybko)
-  async generateFreeAIImage(englishWord, polishWord) {
-    // 1. Prosty prompt, żeby zminimalizować ryzyko błędów interpretacji
-    // Dodajemy "vector style", żeby obrazek był czytelny na fiszce
-    const prompt = `iconic illustration of ${englishWord}, simple, vector art, white background, high contrast`;
+  // Rozwiązanie Hybrydowe: Szybkie AI (Pollinations Turbo) z bezpośrednim linkiem
+async generateFreeAIImage(englishWord, polishWord) {
+    // 1. Czyszczenie słowa (usuwamy "to " i zbędne spacje)
+    // Np. "to subtract" -> "subtract"
+    let cleanWord = englishWord.trim().toLowerCase();
+    if (cleanWord.startsWith("to ") && cleanWord.length > 3) {
+        cleanWord = cleanWord.substring(3);
+    }
+    
+    // 2. Tworzenie promptu dla AI
+    // Dodajemy słowa kluczowe, żeby AI wiedziało, że chcemy prosty obrazek edukacyjny
+    const prompt = `minimalist vector icon of ${cleanWord}, simple graphic, white background, educational illustration, high contrast`;
 
-    // 2. Losowe ziarno (seed), żeby obrazek był unikalny
+    // 3. Losowe ziarno (Seed)
+    // To kluczowe! Losowa liczba zapobiega pobieraniu z pamięci podręcznej obrazka "Rate Limit"
     const seed = Math.floor(Math.random() * 1000000);
 
-    // 3. BEZPOŚREDNI URL API (image.pollinations.ai)
-    // To jest kluczowa zmiana - ten adres nie powoduje przekierowań, więc nie ma błędu CORS/onerror
-    // Używamy modelu 'turbo' dla szybkości (ok. 2-3 sekundy)
+    // 4. Bezpośredni URL do API (image.pollinations.ai)
+    // Ten endpoint jest stabilniejszy i rzadziej blokowany niż pollinations.ai/p/...
     const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&model=turbo&seed=${seed}&nologo=true`;
 
-    // Debug w konsoli - kliknij w ten link w konsoli, żeby sprawdzić czy działa
-    console.log("🔗 AI URL:", imageUrl);
+    console.log(`🤖 Generuję AI dla: ${cleanWord} (${imageUrl})`);
 
-    // 4. Mechanizm ładowania z Timeoutem
+    // 5. Sprawdzenie czy obrazek się ładuje
     return new Promise((resolve) => {
-      const img = new Image();
-      let isSettled = false;
+        const img = new Image();
+        
+        // Timeout: Jeśli AI myśli dłużej niż 6 sekund, przerwij (pokażesz ikonkę z appki)
+        const timeout = setTimeout(() => {
+            img.src = ""; 
+            resolve(null);
+        }, 6000);
 
-      // Zabezpieczenie: Jeśli obrazek nie wczyta się w 8 sekund, pokaż ikonkę zamiast błędu
-      const timer = setTimeout(() => {
-        if (!isSettled) {
-          isSettled = true;
-          console.warn(`⏱️ Timeout dla słowa: ${englishWord}`);
-          // Anulujemy ładowanie przypisując pusty src
-          img.src = ""; 
-          resolve(null); // Zwracamy null -> aplikacja użyje awaryjnej ikony/emoji
-        }
-      }, 8000);
+        img.onload = () => {
+            clearTimeout(timeout);
+            resolve(imageUrl);
+        };
 
-      img.onload = () => {
-        if (!isSettled) {
-          isSettled = true;
-          clearTimeout(timer);
-          resolve(imageUrl);
-        }
-      };
+        img.onerror = () => {
+            clearTimeout(timeout);
+            console.warn("❌ Błąd ładowania AI dla:", cleanWord);
+            resolve(null); // Zwróć null -> aplikacja użyje domyślnej ikony/emoji
+        };
 
-      img.onerror = (err) => {
-        if (!isSettled) {
-          isSettled = true;
-          clearTimeout(timer);
-          console.warn(`❌ Błąd ładowania obrazka dla: ${englishWord}`);
-          // W przypadku błędu też zwracamy null, żeby aplikacja się nie zawiesiła
-          resolve(null); 
-        }
-      };
-
-      // Rozpocznij ładowanie
-      img.src = imageUrl;
+        img.src = imageUrl;
     });
-  }
+}
 
   // Imagen 4 (zamiast Imagen 3)
   async generateImageWithImagen4(englishWord, polishWord) {
