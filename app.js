@@ -2355,63 +2355,34 @@ const proxify = (url) => {
   // Generowanie obrazków z bezpłatnym AI (Pollinations AI)
   // NOWA WERSJA FUNKCJI GENEROWANIA OBRAZÓW (Hugging Face API)
 // Metoda klasy VocabularyApp (bez słowa kluczowego 'function')
+  // Zastąp istniejącą metodę generateFreeAIImage tym kodem:
+  // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
   async generateFreeAIImage(englishWord, polishWord) {
-    console.log(`🎨 [HF] Próba generowania dla: ${englishWord}`);
+    console.log(`🎨 [Pollinations/Flux] Generowanie dla: ${englishWord}`);
 
-    // 1. KONFIGURACJA
-    // Wklej tutaj swój token (zaczyna się od hf_...) LUB wpisz go w Ustawieniach aplikacji w polu "Klucz API"
-    // Token pobierzesz tutaj: https://huggingface.co/settings/tokens
-    const HF_TOKEN = this.settings.aiApiKey || "TUTAJ_WKLEJ_TOKEN_JEŚLI_NIE_UŻYWASZ_USTAWIEŃ"; 
-    
-    // Model: 'stabilityai/stable-diffusion-2-1' jest stabilny. 
-    // Możesz też użyć 'runwayml/stable-diffusion-v1-5' (szybszy)
-    const MODEL_ID = "stabilityai/stable-diffusion-2-1";
+    // 1. Tworzenie prostego promptu
+    // Unikamy skomplikowanych opisów, Flux lubi konkrety.
+    const prompt = `high quality illustration of ${englishWord} (${polishWord}), single object, white background, vector art style, minimalism, 4k`;
 
-    // Sprawdzenie czy mamy token (niezbędny dla HF Inference API)
-    if (!HF_TOKEN || HF_TOKEN.includes("TUTAJ_WKLEJ")) {
-        console.warn("Brak tokena HF. Obrazki mogą się nie generować (błąd 401/403).");
-    }
+    // 2. Generowanie losowego ziarna (seed), żeby obrazek był inny za każdym razem
+    const seed = Math.floor(Math.random() * 1000000);
 
-    try {
-      // 2. TWORZENIE PROMPTU (Opisu dla AI)
-      // Pobieramy "sens" słowa (definicję), żeby AI wiedziało o co chodzi
-      const sense = await this.getImageSenseText(englishWord, polishWord);
-      // Konstrukcja promptu: Prosta ilustracja, białe tło, brak tekstu
-      const prompt = `A clear, simple illustration of ${englishWord} (${sense}), single object, white background, vector art style, high quality. NO text, NO letters.`;
+    // 3. Budowanie URL
+    // Używamy modelu 'flux' - jest obecnie najlepszy z darmowych.
+    // encodeURIComponent jest kluczowy, żeby spacje i znaki specjalne nie psuły linku.
+    const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=512&height=512&model=flux&seed=${seed}&nologo=true`;
 
-      // 3. ZAPYTANIE DO API
-      const response = await fetch(
-        `https://api-inference.huggingface.co/models/${MODEL_ID}`,
-        {
-          headers: {
-            Authorization: `Bearer ${HF_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify({ inputs: prompt }),
-        }
-      );
-
-      if (!response.ok) {
-        // Jeśli model się ładuje (503), spróbuj ponownie za chwilę
-        if (response.status === 503) {
-            console.log("Model HF się ładuje, ponawiam za 2s...");
-            await new Promise(r => setTimeout(r, 2000));
-            return this.generateFreeAIImage(englishWord, polishWord); // rekurencja
-        }
-        throw new Error(`Błąd API Hugging Face: ${response.status}`);
-      }
-
-      // 4. PRZETWARZANIE WYNIKU
-      const blob = await response.blob();
-      const imageUrl = URL.createObjectURL(blob);
-      return imageUrl;
-
-    } catch (error) {
-      console.error("Błąd generowania obrazu przez Hugging Face:", error);
-      // Zwróć null, aby aplikacja użyła ikonek/emoji jako fallback
-      return null;
-    }
+    // 4. Pre-loading (sprawdzenie czy obrazek działa)
+    // Zwracamy Promise, który rozwiązuje się do URL obrazka
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(imageUrl);
+        img.onerror = () => {
+            console.warn("Błąd ładowania obrazka Pollinations");
+            resolve(null); // Fallback do ikonek w razie błędu
+        };
+        img.src = imageUrl;
+    });
   }
 
   // Imagen 4 (zamiast Imagen 3)
