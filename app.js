@@ -2359,29 +2359,61 @@ const proxify = (url) => {
   // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
   // Zastąp całą metodę generateFreeAIImage w klasie VocabularyApp:
   // Metoda naprawcza: Pollinations AI z modelem FLUX (najlepsza jakość, brak CORS)
-async generateFreeAIImage(englishWord, polishWord) {
-    console.log(`🎨 [Pollinations/Flux] Generowanie dla: ${englishWord}`);
+// Metoda naprawcza: Stabilne API Pollinations (Model Turbo - działa jak Craiyon, ale szybko)
+  async generateFreeAIImage(englishWord, polishWord) {
+    // 1. Prosty prompt, żeby zminimalizować ryzyko błędów interpretacji
+    // Dodajemy "vector style", żeby obrazek był czytelny na fiszce
+    const prompt = `iconic illustration of ${englishWord}, simple, vector art, white background, high contrast`;
 
-    // 1. Tworzenie prostego promptu
-    const prompt = `high quality illustration of ${englishWord} (${polishWord}), single object, white background, vector art style, minimalism, 4k`;
-
-    // 2. Generowanie losowego ziarna (seed), żeby obrazek był inny za każdym razem
+    // 2. Losowe ziarno (seed), żeby obrazek był unikalny
     const seed = Math.floor(Math.random() * 1000000);
 
-    // 3. Budowanie URL - Pollinations działa jako zwykły link do obrazka, więc CORS go nie blokuje
-    const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=512&height=512&model=flux&seed=${seed}&nologo=true`;
+    // 3. BEZPOŚREDNI URL API (image.pollinations.ai)
+    // To jest kluczowa zmiana - ten adres nie powoduje przekierowań, więc nie ma błędu CORS/onerror
+    // Używamy modelu 'turbo' dla szybkości (ok. 2-3 sekundy)
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&model=turbo&seed=${seed}&nologo=true`;
 
-    // 4. Pre-loading (sprawdzenie czy obrazek działa)
+    // Debug w konsoli - kliknij w ten link w konsoli, żeby sprawdzić czy działa
+    console.log("🔗 AI URL:", imageUrl);
+
+    // 4. Mechanizm ładowania z Timeoutem
     return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(imageUrl);
-        img.onerror = () => {
-            console.warn("Błąd ładowania obrazka Pollinations");
-            resolve(null); // Fallback do ikonek w razie błędu
-        };
-        img.src = imageUrl;
+      const img = new Image();
+      let isSettled = false;
+
+      // Zabezpieczenie: Jeśli obrazek nie wczyta się w 8 sekund, pokaż ikonkę zamiast błędu
+      const timer = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          console.warn(`⏱️ Timeout dla słowa: ${englishWord}`);
+          // Anulujemy ładowanie przypisując pusty src
+          img.src = ""; 
+          resolve(null); // Zwracamy null -> aplikacja użyje awaryjnej ikony/emoji
+        }
+      }, 8000);
+
+      img.onload = () => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          resolve(imageUrl);
+        }
+      };
+
+      img.onerror = (err) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          console.warn(`❌ Błąd ładowania obrazka dla: ${englishWord}`);
+          // W przypadku błędu też zwracamy null, żeby aplikacja się nie zawiesiła
+          resolve(null); 
+        }
+      };
+
+      // Rozpocznij ładowanie
+      img.src = imageUrl;
     });
-}
+  }
 
   // Imagen 4 (zamiast Imagen 3)
   async generateImageWithImagen4(englishWord, polishWord) {
